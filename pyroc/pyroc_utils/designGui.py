@@ -2,7 +2,7 @@ import argparse
 import os
 import numpy as np
 import tkinter as tk
-import tkinter as ttk
+from tkinter import ttk
 from tkinter import font as tkFont
 import warnings
 from collections import OrderedDict
@@ -50,7 +50,7 @@ class ScrollableFrame(ttk.Frame):
             canvas.pack(side='left', fill='both', expand=True)
             scrollbar.pack(side='right', fill='y')
         else:
-            canvas.create_window((0, 0), window=self.scrollable_frame, anchor='sw')
+            canvas.create_window((0, 0), window=self.scrollable_frame, anchor='nw')
             canvas.configure(xscrollcommand=scrollbar.set)
             canvas.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True)
             scrollbar.pack(side=tk.BOTTOM, fill='x')
@@ -78,7 +78,7 @@ class PyrocDesign:
 
         try:
             icon_dir = os.path.dirname(os.path.abspath(__file__))
-            icon_name = 'cyrocIcon.png'
+            icon_name = 'cyrocIcon.gif'
             icon_dir_full = os.path.join(icon_dir, '..', '..', 'assets', icon_name)
             self.icon = tk.PhotoImage(file=icon_dir_full)
             self.root.tk.call('wm', 'iconphoto', self.root._w, self.icon)
@@ -163,8 +163,9 @@ class PyrocDesign:
         '''
         Create the frames and widgets in the bottom section of the canvas.
         '''
-        fontS = tkFont.Font(family='Helvetica', size=6)
+        fontS = tkFont.Font(family='Helvetica', size=8)
         fontM = tkFont.Font(family='Helvetica', size=10)
+        fontL = tkFont.Font(family='Helvetica', size=12)
 
         dv_frame  = ScrollableFrame(self.root,orient='horizontal')
 
@@ -177,54 +178,56 @@ class PyrocDesign:
             for __ in range(len(keys[_])):
                 key = keys[_][__]
                 dv = self.dvDict[surf][key]
-                dvSlider = ttk.Scale(dv_frame.scrollable_frame, from_=dv.upper, to=dv.lower, orient='vertical',
-                                     variable=dv.value, resolution=1e-3, command=self.update, font=fontS)
-                dvSlider.pack(side=tk.TOP, fill=tk.BOTH)
-                dvLabel = ttk.Label(dv_frame.scrollable_frame, text=key+'S'+str(_))
-                dvLabel.pack(side=tk.BOTTOM, fill=tk.BOTH)
+                dvSlider = tk.Scale(dv_frame.scrollable_frame, from_=dv.upper, to=dv.lower, orient='vertical',
+                                     variable=dv.value, command=self.update, resolution=dv.getValue()*1e-3, font=fontS)
+                dvSlider.grid(row=0, column=c)
+                dvLabel = tk.Label(dv_frame.scrollable_frame, text=key+'S'+str(_), font=fontS)
+                dvLabel.grid(row=1, column=c)
+                dvEntry = ttk.Entry(dv_frame.scrollable_frame, textvariable=dv.value)
+                dvEntry.grid(row=2, column=c)
                 c+=1
         
         dv_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
 
-        cmd_frame = tk.Frame(self.root)
+        cmd_frame = ttk.Frame(self.root)
 
-        xlimLabel = ttk.Label(cmd_frame, text='x-limits')
+        xlimLabel = ttk.Label(cmd_frame, text='x-limits', font=fontS)
         xlimLabel.grid(row=1, column=1)
-        xlimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[0,0], font=fontS)
+        xlimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[0,0])
         xlimlBox.grid(row=1, column=2)
-        xlimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[0,1], font=fontS)
+        xlimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[0,1])
         xlimuBox.grid(row=1, column=3)
 
-        ylimLabel = ttk.Label(cmd_frame, text='y-limits')
+        ylimLabel = tk.Label(cmd_frame, text='y-limits', font=fontS)
         ylimLabel.grid(row=2, column=1)
-        ylimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[1,0], font=fontS)
+        ylimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[1,0])
         ylimlBox.grid(row=2, column=2)
-        ylimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[1,1], font=fontS)
+        ylimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[1,1])
         ylimuBox.grid(row=2, column=3)
 
         if self.ndim==3:
-            zlimLabel = ttk.Label(cmd_frame, text='z-limits')
+            zlimLabel = tk.Label(cmd_frame, text='z-limits', font=fontS)
             zlimLabel.grid(row=3, column=1)
-            zlimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[2,0], font=fontS)
+            zlimlBox = ttk.Entry(cmd_frame, textvariable=self.textLim[2,0])
             zlimlBox.grid(row=3, column=2)
-            zlimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[2,1], font=fontS)
+            zlimuBox = ttk.Entry(cmd_frame, textvariable=self.textLim[2,1])
             zlimuBox.grid(row=3, column=3)
 
-        updateLimits = ttk.Button(cmd_frame, text='Update Limits', command=self.setLimits, font=fontM)
+        updateLimits = tk.Button(cmd_frame, text='Update Limits', command=self.setLimits, font=fontM)
         updateLimits.grid(row=self.ndim+1, column=1, columnspan=3)
 
-        quitButton = ttk.Button(cmd_frame, text='Quit', command=self.quit, font=fontM)
+        quitButton = tk.Button(cmd_frame, text='Quit', command=self.quit, font=fontM)
         quitButton.grid(row=1, column=5, padx=25, sticky=tk.N)
 
-        xresLabel = ttk.Label(cmd_frame, text='x-res')
+        xresLabel = tk.Label(cmd_frame, text='x-res', font=fontS)
         xresLabel.grid(row=2, column=4)
-        xresSlider = ttk.Scale(cmd_frame, from_=10, to=1000, orient='horizontal',
+        xresSlider = tk.Scale(cmd_frame, from_=10, to=1000, orient='horizontal',
                                variable=self.resolution[0], resolution=1, command=self.update, font=fontS)
         xresSlider.grid(row=2, column=5)
 
-        xresLabel = ttk.Label(cmd_frame, text='y-res')
+        xresLabel = tk.Label(cmd_frame, text='y-res', font=fontS)
         xresLabel.grid(row=3, column=4)
-        yresSlider = ttk.Scale(cmd_frame, from_=10, to=1000, orient='horizontal',
+        yresSlider = tk.Scale(cmd_frame, from_=10, to=1000, orient='horizontal',
                                variable=self.resolution[1], resolution=1, command=self.update, font=fontS)
         yresSlider.grid(row=3, column=5)
 
@@ -251,8 +254,7 @@ class PyrocDesign:
         self.update(None)
 
     def update(self, e):
-        keys = list(self.dvDict.keys())
-        self.geo.updateCoeffs([[self.dvDict[_][__].getValue() for __ in self.dvDict[_].keys()] for _ in keys])
+        self.geo.updateCoeffs([[self.dvDict[_][__].getValue() for __ in self.dvDict[_].keys()] for _ in self.dvDict.keys()])
         self.plotAx.cla()
 
         if self.mode == '2d':
@@ -281,16 +283,23 @@ class PyrocDesign:
         self.canvas.draw()
 
 
-#2d Example
+#Examples
 class GeoEx():
-    def __init__(self, surfaces=[]):
+    def __init__(self, surfaces=[], coeffPairs=None):
         self.surfaces = surfaces
+        self.coeffPairs = coeffPairs
 
     def updateCoeffs(self,coeffs):
         for _ in range(len(self.surfaces)):
             surf = self.surfaces[_]
+            oldCoeffs = surf.getCoeffs()
+            for __ in range(len(oldCoeffs)): #Loop through coefficients
+                if self.coeffPairs is not None:
+                    for i in range(len(self.coeffPairs[:,0])):
+                        if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
+                            coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
             surf.updateCoeffs(coeffs[_])
-            surf.updateCoords()
+            surf.updateCoords()     
 
     def getCoeffs(self):
         coeffs = []
@@ -299,6 +308,7 @@ class GeoEx():
             coeffs.append(surf.getCoeffs())
         return coeffs
 
+#2d Example
 x=np.linspace(0,1.0,100)
 z=np.zeros_like(x)
 arr = np.array(list(zip(x,z)))
@@ -332,15 +342,16 @@ geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2
 
 # def wingExtModFunc(pts, eta, *coeffs):
 #     coeffs = coeffs[0]
-#     def angle(eta, *coeffs):
-#         coeffs = coeffs[0]
-#         return (np.exp(10*eta)-1)*coeffs[0] 
-#     newPts = []
-#     for _ in range(len(pts)):
-#         pt = pts[_]
-#         pt[2] += -coeffs[-1]*np.log(np.cos(angle(eta,coeffs)))
-#         newPts.append(pt)
-#     return np.array(newPts)
+#     # def angle(eta, *coeffs):
+#     #     coeffs = coeffs[0]
+#     #     return (np.exp(10*eta)-1)*coeffs[0] 
+#     # newPts = []
+#     # for _ in range(len(pts)):
+#     #     pt = pts[_]
+#     #     pt[2] += -coeffs[-1]*np.log(np.cos(angle(eta,coeffs)))
+#     #     newPts.append(pt)
+#     #return np.array(newPts)
+#     return pts
 
 # def wingChordModFunc(eta, *coeffs):
 #     coeffs = coeffs[0]
@@ -358,18 +369,25 @@ geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2
 #         newPts[_,:] = rotV
 #     return newPts
 
-# wingSS = CSTWing3D(surface1, extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[3e-5, 5.0], chordModFunc=wingChordModFunc,
+# wingSS = CSTWing3D(surface1, csClassCoeffs=[0.5,1.0], extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[4e-5, 5.0], chordModFunc=wingChordModFunc,
 #                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0])
 # wingSS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
-# wingSS.updateZeta()
-# # wingSS.updateCoords()
-# wingPS = CSTWing3D(surface2, extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[3e-5, 5.0], chordModFunc=wingChordModFunc,
+
+# wingPS = CSTWing3D(surface2, csClassCoeffs=[0.5,1.0], extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[4e-5, 5.0], chordModFunc=wingChordModFunc,
 #                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0], zScale=-1.0)
 # wingPS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
-# wingPS.updateZeta()
-# # wingPS.updateCoords()
 
-# geo = GeoEx([wingSS, wingPS])
+#                 #surf1, coeffN1, surf2, coeffN2
+# globalCoeffPairs = [[0,0,1,0],
+#                     [0,1,1,1],
+#                     [0,5,1,5],
+#                     [0,6,1,6],
+#                     [0,7,1,7],
+#                     [0,8,1,8],
+#                     [0,9,1,9],
+#                     [0,10,1,10],
+#                     [0,11,1,11]]
+# geo = GeoEx([wingSS, wingPS], np.array(globalCoeffPairs))
 
 #############################
 

@@ -1,8 +1,8 @@
-#from norm import *
 from collections import OrderedDict
-from cst2d import * #Currently plotting
+from cst2d import *
 import numpy as np
 import scipy.optimize as scp
+
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 import stl
@@ -82,15 +82,15 @@ class CST3DParam():
         
         self.order = order
 
-        if (len(extShapeCoeffs)==self.order[1]+2) or (len(extShapeCoeffs)==self.order[1]+1):
+        if len(extShapeCoeffs)>self.order[1]:
             self.extShapeCoeffs = extShapeCoeffs
         else:    
-            self.extShapeCoeffs = [1 for _ in range(order[1]+1)]
+            self.extShapeCoeffs = [1.0 for _ in range(order[1]+1)]
 
-        if (len(csShapeCoeffs)==self.order[0]+2) or (len(csShapeCoeffs)==self.order[0]+1):
+        if len(csShapeCoeffs)>self.order[0]:
             self.csShapeCoeffs = csShapeCoeffs
         else:    
-            self.csShapeCoeffs = [1 for _ in range(order[0]+1)]
+            self.csShapeCoeffs = [1.0*zScale for _ in range(order[0]+1)]
 
         self.extClassCoeffs = extClassCoeffs
         self.csClassCoeffs = csClassCoeffs    
@@ -192,37 +192,42 @@ class CST3DParam():
         return self.surface
 
     def defaultExtrudeFunc(self, eta, *coeffs):
+        coeffs = coeffs[0]
         return 0
 
     def defaultClassFunc(self, psi, *coeffs):
+        coeffs = coeffs[0]
         return 0
 
     def defaultExtModFunc(self, pts, eta, *coeffs):#Modifies leading edge points
+        coeffs = coeffs[0]
         newPts = []
         for p in pts:
             newPts.append(p)
         return np.array(newPts)
 
     def defaultCsModFunc(self, pts, eta, *coeffs):
+        coeffs = coeffs[0]
         newPts = []
         for p in pts:
             newPts.append(p)
         return np.array(newPts)
 
     def defaultChordModFunc(self, eta, *coeffs):
+        coeffs = coeffs[0]
         return 1.0
 
     def updateCoeffs(self, *coeffs):
-        coeffs=coeffs[0]
-        n1 = len(self.extShapeCoeffs)
+        coeffs = coeffs[0]
+        n1 = self.order[1]+1
         if len(coeffs)>n1 and n1>0:
             self.extShapeCoeffs = coeffs[:n1]
             self.extOffset = coeffs[n1]
-        n2 = n1+self.order[0]+1
+        n2 = n1+self.order[0]+2
         if len(coeffs)>n2 and n2>n1:
             self.csShapeCoeffs = coeffs[n1+1:n2]
             self.csOffset = coeffs[n2]
-        n3 = n2+len(self.extModCoeffs)
+        n3 = n2+1+len(self.extModCoeffs)
         if len(coeffs)>=n3 and n3>n2:
             self.extModCoeffs = coeffs[n2+1:n3]
         n4 = n3+len(self.csModCoeffs)
@@ -236,7 +241,10 @@ class CST3DParam():
             self.extClassCoeffs = coeffs[n5:n6]
         n7 = n6+len(self.csClassCoeffs)
         if len(coeffs)>=n7 and n7>n6:
-            self.csClassCoeffs = coeffs[n6:n7]
+            self.csClassCoeffs = coeffs[n6:]
+
+        self.extParam.updateCoeffs(self.extShapeCoeffs+[self.extOffset]+self.extClassCoeffs)
+        self.csParam.updateCoeffs(self.csShapeCoeffs+[self.csOffset]+self.csClassCoeffs)
 
     def getCoeffs(self):
         coeffs = []
@@ -267,8 +275,7 @@ class CST3DParam():
             return self.calcSurface(psiEtaZeta)[2]
 
         #TODO Fix warning for cov params being inf in certain conditions
-        inpCoeffs = self.extShapeCoeffs+[self.extOffset]+self.csShapeCoeffs+[self.csOffset]+self.extModCoeffs+self.csModCoeffs+self.chordModCoeffs+self.extClassCoeffs+self.csClassCoeffs
-        coeffs,cov = scp.curve_fit(surface,self.surface[:,0:2],self.surface[:,2],inpCoeffs)
+        coeffs,cov = scp.curve_fit(surface,self.surface[:,0:2],self.surface[:,2],self.getCoeffs())
         self.updateCoeffs(coeffs)
         self.updatePsiEtaZeta()
 
