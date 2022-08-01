@@ -15,7 +15,7 @@ try:
 except:
     pass
 
-class PyrocDesign:
+class Interface:
 
     def __init__(self, mode='2d', figsize=4):
         self.mode = mode
@@ -97,5 +97,5 @@ class PyrocDesign:
         quitButton = tk.Button(sel_frame, text="Quit", command=self.quit, font=font)
         quitButton.grid(row=1, column=1, padx=25, sticky=tk.N)
  
-p = PyrocDesign(mode='3d')
+p = Interface(mode='3d')
 tk.mainloop()

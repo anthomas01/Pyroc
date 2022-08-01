@@ -12,9 +12,9 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from scipy.spatial import Delaunay
 
-from designVars import DesignVar
-from cst2d import *
-from cst3d import *
+from .designVars import DesignVar
+from .cst2d import *
+from .cst3d import *
 
 #Testing
 
@@ -57,7 +57,7 @@ class ScrollableFrame(ttk.Frame):
 
         
 
-class PyrocDesign:
+class PyrocDesign(object):
     '''
     Base class for analyzing design space
 
@@ -89,9 +89,9 @@ class PyrocDesign:
         for surf in self.geo.surfaces:
             surf.updateCoords()
             if len(surf0)>0:
-                surf0 = np.append(surf0,surf.getCoords(),axis=0)
+                surf0 = np.append(surf0,surf.updateCoords(),axis=0)
             else:
-                surf0 = surf.getCoords()
+                surf0 = surf.updateCoords()
         self.ndim = len(surf0[0,:])
         bounds = np.array([[np.min(surf0[:,_]), np.max(surf0[:,_])] for _ in range(self.ndim)])
         width = 0.25
@@ -261,7 +261,7 @@ class PyrocDesign:
             for surf in self.geo.surfaces:
                 x=np.linspace(0.0,1.0,self.resolution[0].get())
                 surf.setPsiZeta(x)
-                newCoords = surf.getCoords()
+                newCoords = surf.updateCoords()
                 self.plotAx.plot(newCoords[:,0], newCoords[:,1])
             self.plotAx.set_xlabel('x')
             self.plotAx.set_ylabel('y')
@@ -269,7 +269,7 @@ class PyrocDesign:
             self.plotAx.axes.set_ylim([self.lim[1,0],self.lim[1,1]])
         elif self.mode =='3d':
             for surf in self.geo.surfaces:
-                newCoords = surf.getCoords()
+                newCoords = surf.updateCoords()
                 param = surf.getParam()
                 xv, yv = param[:,0], param[:,1]
                 tri = Delaunay(np.array([xv,yv]).T)
@@ -284,36 +284,36 @@ class PyrocDesign:
 
 
 #Examples
-class GeoEx():
-    def __init__(self, surfaces=[], coeffPairs=None):
-        self.surfaces = surfaces
-        self.coeffPairs = coeffPairs
+# class GeoEx():
+#     def __init__(self, surfaces=[], coeffPairs=None):
+#         self.surfaces = surfaces
+#         self.coeffPairs = coeffPairs
 
-    def updateCoeffs(self,coeffs):
-        for _ in range(len(self.surfaces)):
-            surf = self.surfaces[_]
-            oldCoeffs = surf.getCoeffs()
-            for __ in range(len(oldCoeffs)): #Loop through coefficients
-                if self.coeffPairs is not None:
-                    for i in range(len(self.coeffPairs[:,0])):
-                        if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
-                            coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
-            surf.updateCoeffs(coeffs[_])
-            surf.updateCoords()     
+#     def updateCoeffs(self,coeffs):
+#         for _ in range(len(self.surfaces)):
+#             surf = self.surfaces[_]
+#             oldCoeffs = surf.getCoeffs()
+#             for __ in range(len(oldCoeffs)): #Loop through coefficients
+#                 if self.coeffPairs is not None:
+#                     for i in range(len(self.coeffPairs[:,0])):
+#                         if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
+#                             coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
+#             surf.updateCoeffs(coeffs[_])
+#             surf.updateCoords()     
 
-    def getCoeffs(self):
-        coeffs = []
-        for _ in range(len(self.surfaces)):
-            surf = self.surfaces[_]
-            coeffs.append(surf.getCoeffs())
-        return coeffs
+#     def getCoeffs(self):
+#         coeffs = []
+#         for _ in range(len(self.surfaces)):
+#             surf = self.surfaces[_]
+#             coeffs.append(surf.getCoeffs())
+#         return coeffs
 
 #2d Example
-x=np.linspace(0,1.0,100)
-z=np.zeros_like(x)
-arr = np.array(list(zip(x,z)))
-cst = CSTAirfoil2D(arr,order=7)
-geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2,zScale=-1.0,shapeOffset=0.00)])
+# x=np.linspace(0,1.0,100)
+# z=np.zeros_like(x)
+# arr = np.array(list(zip(x,z)))
+# cst = CSTAirfoil2D(arr,order=7)
+# geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2,shapeScale=-1.0,shapeOffset=0.00)])
 
 #3d Example
 # rootChord = 1.0
@@ -374,7 +374,7 @@ geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2
 # wingSS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
 
 # wingPS = CSTWing3D(surface2, csClassCoeffs=[0.5,1.0], extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[4e-5, 5.0], chordModFunc=wingChordModFunc,
-#                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0], zScale=-1.0)
+#                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0], shapeScale=-1.0)
 # wingPS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
 
 #                 #surf1, coeffN1, surf2, coeffN2
@@ -391,5 +391,5 @@ geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2
 
 #############################
 
-p = PyrocDesign(geo,mode='2d')
-p.root.mainloop()
+# p = PyrocDesign(geo,mode='2d')
+# p.root.mainloop()

@@ -11,13 +11,11 @@ arr = np.array(list(zip(x,z)))
 
 #Upper surface
 cst = CSTAirfoil2D(arr,order=7) #Initialize upper surface
-cst.updatePsiZeta() #Create psi from x coords and calc zeta from coeffs
 xzU = cst.updateCoords() #Update coordinates from parameterized values
 plt.plot(xzU[:,0],xzU[:,1],'-',label='Upper') #Plot coordinates
 
 #Lower Surface
 cstLower = CSTAirfoil2D(arr,order=7,shapeScale=-1.0) #Shape coeffs initialized to -1 for lower surface
-cstLower.updatePsiZeta()
 xzL = cstLower.updateCoords()
 plt.plot(xzL[:,0],xzL[:,1],'-',label='Lower')
 

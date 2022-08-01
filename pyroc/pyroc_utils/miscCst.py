@@ -1,4 +1,4 @@
-from miscVar import *
+from .miscVar import *
 import numpy as np
 
 def binaryCoefficients(n):

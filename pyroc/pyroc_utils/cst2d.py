@@ -1,11 +1,11 @@
-from miscVar import *
-from miscCst import *
+from .miscVar import *
+from .miscCst import *
 import numpy as np
 import scipy.optimize as scp
 
-class CST2DParam():
+class CST2DParam(object):
     """
-    Class for storing information about cst parameterization in 2d
+    Baseclass for storing information about cst parameterization in 2d
 
     Parameters
     ----------
@@ -46,8 +46,8 @@ class CST2DParam():
             BCs?
     """
 
-    def __init__(self, coords, classFunc=None, classCoeffs=[], shapeCoeffs=[],
-                 masks=[], order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
+    def __init__(self, coords, classFunc=None, classCoeffs=[], shapeCoeffs=[], masks=[], 
+                 order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
         #Original coordinates. Used for comparing fit, ie printing fit residuals
         self.origCoords = coords
         #Number of points
@@ -78,15 +78,13 @@ class CST2DParam():
         self.nCoeff = len(self.getCoeffs())
         self.masks = [0 for _ in range(self.nCoeff)] if len(masks)==0 else masks
 
-        #Internally stored parametric coordinates
-        self.psiZeta = np.zeros((self.nPts,2))
-        #Set initial values from original coordinates
-        self.updatePsiZeta()
+        #Set initial parameterization values from original coordinates
+        self.psiZeta = self.coords2PsiZeta(self.origCoords)
 
         #Default Class Function, 0
     def defaultClassFunction(self, psiVals, *coeffs):
         coeffs = coeffs[0]
-        return 0
+        return np.zeros(len(psiVals))
 
     #Default Shape Function, Bernstein Polynomials
     def defaultShapeFunction(self,psiVals,*coeffs):
@@ -95,19 +93,20 @@ class CST2DParam():
         return augments.flatten()
 
     # Functions for converting arrays of coordinates from parametric space to cartesian
-    def calcXToPsi(self, xVals):
+    def calcX2Psi(self, xVals):
         return xVals/self.refLen
 
-    def calcZToZeta(self, zVals):
+    def calcZ2Zeta(self, zVals):
         return zVals/self.refLen
 
-    def calcPsiToX(self, psiVals):
+    def calcPsi2X(self, psiVals):
         return psiVals*self.refLen
 
-    def calcZetaToZ(self, zetaVals):
+    def calcZeta2Z(self, zetaVals):
         return zetaVals*self.refLen
 
     #Estimates psi vals from zeta values
+    ##Broken, needs to have better initial guess
     def calcPsi(self, zetaVals):
         def objFunc(psiVals):
             return self.calcZeta(psiVals)-zetaVals
@@ -118,33 +117,39 @@ class CST2DParam():
     def calcZeta(self, psiVals):
         return self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs) + psiVals*(self.shapeOffset/self.refLen)
 
+    #Update zeta values from internal psi values
+    def updateZeta(self):
+        self.psiZeta[:,1] = self.calcZeta(self.psiZeta[:,0])
+        return self.psiZeta
+
     #Calculate cartesian of any parametric set and return
     def calcCoords(self, psiZeta):
-        return np.array([self.calcPsiToX(psiZeta[:,0]),self.calcZetaToZ(psiZeta[:,1])]).T
+        return np.vstack([self.calcPsi2X(psiZeta[:,0]),self.calcZeta2Z(psiZeta[:,1])]).T
 
     #Update internal coordinates from internal parametric coords and return
     def updateCoords(self):
+        self.updateZeta()
         self.coords = self.calcCoords(self.psiZeta)
         return self.coords
 
-    #Calculate parametric coordinates from x and z
-    def calcPsiZeta(self, coords):
-        return np.array([self.calcXToPsi(coords[:,0]),self.calcZToZeta(coords[:,1])]).T
+    #Calculate psi,zeta from coords
+    def coords2PsiZeta(self, coords):
+        return np.vstack([self.calcX2Psi(coords[:,0]),self.calcZ2Zeta(coords[:,1])]).T
 
-    #Update internal psiZeta coordinates from internal coordinates, assumed psi is known
-    def updatePsiZeta(self):
-        psiVals = self.calcXToPsi(self.coords[:,0])
-        self.psiZeta = np.array([psiVals, self.calcZeta(psiVals)]).T
+    #Set Psi values and update zeta
+    def setPsiZeta(self, psiVals):
+        zetaVals = self.calcZeta(psiVals)
+        self.psiZeta = np.vstack([psiVals,zetaVals]).T
         return self.psiZeta
 
     #Calculate ZVals from XVals
-    def calcXToZ(self, xVals):
-        zVals = self.calcZetaToZ(self.calcZeta(self.calcXToPsi(xVals)))
+    def calcX2Z(self, xVals):
+        zVals = self.calcZeta2Z(self.calcZeta(self.calcX2Psi(xVals)))
         return zVals
 
     #Calculate XVals from ZVals
-    def calcZToX(self, zVals):
-        xVals = self.calcPsiToX(self.calcPsi(self.calcZToZeta(zVals)))
+    def calcZ2X(self, zVals):
+        xVals = self.calcPsi2X(self.calcPsi(self.calcZ2Zeta(zVals)))
         return xVals
 
     #Update internal coefficients from coefficients list,
@@ -153,19 +158,17 @@ class CST2DParam():
     def updateCoeffs(self,*coeffs):
         coeffs=coeffs[0]
         nC = len(coeffs)
-        ind = np.zeros(nC)
         n1 = len(self.classCoeffs)
         n2 = n1+self.order+1
         for _ in range(nC):
             if not self.masks[_]:
                 if _<n1:
-                    self.classCoeffs[ind[_]] = coeffs[_]
+                    self.classCoeffs[_] = coeffs[_]
                 elif _<n2 and _>=n1:
-                    self.shapeCoeffs[ind[_]] = coeffs[_]
+                    i = _-n1
+                    self.shapeCoeffs[i] = coeffs[_]
                 elif _>=n2:
                     self.shapeOffset = coeffs[_]
-            ind[_] += 1
-        self.shapeOffset = coeffs[n2+1]
         return 0
 
     #Return an ordered list of coeffs from internal coeff values
@@ -191,7 +194,7 @@ class CST2DParam():
         dZetadPsi = (self.calcZeta(psih)-self.calcZeta(psiVals))/h
         return np.array(dZetadPsi)
 
-    def getSlope(self):
+    def getDeriv(self):
         return self.calcDeriv(self.psiZeta[:,0])
 
     #dZetadCoeffs jacobian matrix [nPts, nCoeffs]
@@ -212,11 +215,11 @@ class CST2DParam():
     def fit2d(self):
         def curve(xVals,*coeffs):
             self.updateCoeffs(coeffs[0])
-            return self.calcXToZ(xVals)
+            return self.calcX2Z(xVals)
         #TODO Fix warning for cov params being inf in certain conditions
         coeffs,cov = scp.curve_fit(curve,self.coords[:,0],self.coords[:,1],self.getCoeffs())
         self.updateCoeffs(coeffs)
-        self.updatePsiZeta()
+        self.updateZeta()
 
     #Print residual info between original coords and current coords
     #Mainly used for fit
@@ -259,10 +262,11 @@ class CSTAirfoil2D(CST2DParam):
     Class For Storing CST Parameterization Information For An Airfoil
     Pseudo-2D requires upper and lower surface
     """
-    def __init__(self, coords, classFunc=None, order=5, classCoeffs=[0.5,1.0], shapeCoeffs=[], shapeOffset=0.0, shapeScale=1.0):
+    def __init__(self, coords, classFunc=None, classCoeffs=[0.5,1.0], shapeCoeffs=[], masks=[],
+                 order=5, shapeOffset=0.0, shapeScale=1.0):
         self.classFunc = self.airfoilClassFunc if classFunc is None else classFunc
-        super().__init__(coords=coords, classFunc=self.classFunc, classCoeffs=classCoeffs, shapeCoeffs=shapeCoeffs,
-                         shapeOffset=shapeOffset, order=order, shapeScale=shapeScale)
+        super().__init__(coords=coords, classFunc=self.classFunc, classCoeffs=classCoeffs, shapeCoeffs=shapeCoeffs, masks=masks,
+                         order=order, shapeOffset=shapeOffset, shapeScale=shapeScale)
 
     #Class Function for an airfoil
     def airfoilClassFunc(self, psiVals, *coeffs):
@@ -288,7 +292,7 @@ class CSTAirfoil2D(CST2DParam):
         return beta
 
     #Analytical derivatives based on airfoil assumption
-    #dZetadPsi - analytic, class func is known
+    #dZetadPsi - analytic, class func is known, split into S' C' and Zeta'
     def calcDeriv(self, psiVals, h=1e-8):
         for _ in range(len(psiVals)):
             if psiVals[_] == 0.0:

@@ -1,6 +1,7 @@
 import numpy as np
 import scipy.linalg as scp
-import rotation
+from .rotation import *
+
 import matplotlib.pyplot as plt
 
 class Curve():
