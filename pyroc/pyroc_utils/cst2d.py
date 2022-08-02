@@ -214,12 +214,13 @@ class CST2DParam(object):
     #Perform a fit of the coefficients
     def fit2d(self):
         def curve(xVals,*coeffs):
-            self.updateCoeffs(coeffs[0])
+            self.updateCoeffs(coeffs)
             return self.calcX2Z(xVals)
         #TODO Fix warning for cov params being inf in certain conditions
         coeffs,cov = scp.curve_fit(curve,self.coords[:,0],self.coords[:,1],self.getCoeffs())
         self.updateCoeffs(coeffs)
         self.updateZeta()
+        return 0
 
     #Print residual info between original coords and current coords
     #Mainly used for fit
@@ -229,6 +230,7 @@ class CST2DParam(object):
               'Avg Diff: ',np.average(err),'\n',
               'Max Diff: ',np.max(err),'\n',
               'Total Diff: ',np.sum(err),'\n')
+        return 0
 
     #dZetadClassCoeffs - default FD, dependant on class func
     def _calcClassJacobian(self, psiVals, h=1e-8):
@@ -263,10 +265,10 @@ class CSTAirfoil2D(CST2DParam):
     Pseudo-2D requires upper and lower surface
     """
     def __init__(self, coords, classFunc=None, classCoeffs=[0.5,1.0], shapeCoeffs=[], masks=[],
-                 order=5, shapeOffset=0.0, shapeScale=1.0):
+                 order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
         self.classFunc = self.airfoilClassFunc if classFunc is None else classFunc
         super().__init__(coords=coords, classFunc=self.classFunc, classCoeffs=classCoeffs, shapeCoeffs=shapeCoeffs, masks=masks,
-                         order=order, shapeOffset=shapeOffset, shapeScale=shapeScale)
+                         order=order, shapeOffset=shapeOffset, refLen=refLen, shapeScale=shapeScale)
 
     #Class Function for an airfoil
     def airfoilClassFunc(self, psiVals, *coeffs):
