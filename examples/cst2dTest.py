@@ -1,8 +1,9 @@
 #Imports
-from pyroc import CSTAirfoil2D
+from pyroc import cst2d
 import numpy as np
 import matplotlib.pyplot as plt
 
+##########################################################################
 
 ##Plot Airfoil example
 #Initialize array for airfoil coordinates
@@ -11,12 +12,12 @@ z = np.zeros_like(x)
 arr = np.array(list(zip(x,z)))
 
 #Upper surface
-cst = CSTAirfoil2D(arr) #Initialize upper surface
+cst = cst2d.CSTAirfoil2D(arr) #Initialize upper surface
 xzU = cst.updateCoords() #Update coordinates from parameterized values
 plt.plot(xzU[:,0],xzU[:,1],'-',label='Upper') #Plot coordinates
 
 #Lower Surface
-cstLower = CSTAirfoil2D(arr,shapeScale=-1.0) #Shape coeffs initialized to -1 for lower surface
+cstLower = cst2d.CSTAirfoil2D(arr,shapeScale=-1.0) #Shape coeffs initialized to -1 for lower surface
 xzL = cstLower.updateCoords()
 plt.plot(xzL[:,0],xzL[:,1],'-',label='Lower')
 
@@ -24,6 +25,7 @@ plt.title('Base Airfoil Shape - '+str(cst.getCoeffs()))
 plt.legend()
 plt.show()
 
+##########################################################################
 
 ##Test curve fit example
 #Initialize array
@@ -32,7 +34,7 @@ z = -np.power(x-0.5,2)+0.25+np.sin(x)-np.sqrt(x)
 arr = np.array(list(zip(x,z)))
 
 #Fit Surface
-cst = CSTAirfoil2D(arr,order=7) #Initialize surface
+cst = cst2d.CSTAirfoil2D(arr,order=7) #Initialize surface
 cst.fit2d()
 xz = cst.origCoords
 xzNew = cst.updateCoords()

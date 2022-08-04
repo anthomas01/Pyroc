@@ -25,9 +25,10 @@ class CST3DParam(object):
          Axes variation?
     """
 
-    def __init__(self, surface, csClassFunc=None, spanClassFunc=None, refLenFunc=None, csOffsetFunc=None,
-                 csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], offsetCoeffs=[0.0], masks=[],
-                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=[[1.0,0.0,0.0],[0.0,1.0,0.0]], shapeScale=1.0):
+    def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None, csOffsetFunc=None,
+                 csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], 
+                 offsetCoeffs=[0.0], masks=[], order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], 
+                 refAxes=[[1.0,0.0,0.0],[0.0,1.0,0.0]], shapeScale=1.0):
         ##Coordinates
         #Original coordinates. Used for comparing fit, ie printing fit residuals
         self.origSurface = surface
@@ -37,11 +38,18 @@ class CST3DParam(object):
         self.surface = self.origSurface
 
         ##Reference values/functions
-        self.csClassFunc = self.csClassFunc
+        #cross section class function
+        self.csClassFunc = csClassFunc
+        #Cross section modification
+        self.csModFunc = csModFunc
+        #span class function
+        self.spanClassFunc = spanClassFunc
+        #span modification
+        self.spanModFunc = spanModFunc
         #Reference chord function
-        self.refLen = self.defaultChordFunc if refLenFunc is None else refLenFunc
+        self.refLen = self.defaultChordFunction if refLenFunc is None else refLenFunc
         #Cross section offset function
-        self.csOffsetFunc = self.defaultOffsetFunc if csOffsetFunc is None else csOffsetFunc
+        self.csOffsetFunc = self.defaultOffsetFunction if csOffsetFunc is None else csOffsetFunc
 
         #Order of shape functions, first is order of cs shape func, second is order of span
         self.order = order
@@ -62,11 +70,14 @@ class CST3DParam(object):
         self.csModCoeffs = csModCoeffs
         #Span Class Function Coefficients
         self.spanClassCoeffs = spanClassCoeffs
+        #Span modification function coefficients
+        self.spanModCoeffs = spanModCoeffs
         #Shape Function Coefficients
-        if len(shapeCoeffs)==self.order[0]+1 and len(shapeCoeffs[0])==self.order[1]+1:
+        numShape = (self.order[0]+1)*(self.order[1]+1)
+        if len(shapeCoeffs)==numShape:
             self.shapeCoeffs = shapeCoeffs
         else:
-            self.shapeCoeffs = [shapeScale for _ in range((self.order[0]+1)*(self.order[1]+1))]
+            self.shapeCoeffs = [shapeScale for _ in range(numShape)]
         #Reference length function coefficients
         self.chordCoeffs = chordCoeffs
         #Offset Coefficients
@@ -80,13 +91,13 @@ class CST3DParam(object):
         self.psiEtaZeta = self.surface2PsiEtaZeta(self.origSurface)
 
     #Default function to define chord length along eta
-    def defaultChordFunc(self, etaVals, *coeffs):
+    def defaultChordFunction(self, etaVals, *coeffs):
         #By default, first chordCoeffs coeff is chord length
         coeffs = coeffs[0]
         return np.ones(len(etaVals))*coeffs[0]
 
     #Default function to define offset (blunt TE thickness along span)
-    def defaultOffsetFunc(self, etaVals, *coeffs):
+    def defaultOffsetFunction(self, etaVals, *coeffs):
         coeffs = coeffs[0]
         return coeffs[0]
 
@@ -131,7 +142,7 @@ class CST3DParam(object):
 
     #Update zeta values from internal psi and eta values
     def updateZeta(self):
-        self.psiEtaZeta[:,2] = self.calcZeta(self.psiEtaZeta[:,0], self.psiEtaZeta[:,0])
+        self.psiEtaZeta[:,2] = self.calcZeta(self.psiEtaZeta[:,0], self.psiEtaZeta[:,1])
         return self.psiEtaZeta
 
     def transformSurface(self, surface):
@@ -190,15 +201,16 @@ class CST3DParam(object):
 
     #Update internal coefficients from coefficients list,
     #internal coefficient list length must be same as the one being set
-    #Order of coeffs is [csClass, csMod, spanClass, shape, chord, offset]
+    #Order of coeffs is [csClass, csMod, spanClass, spanMod, shape, chord, offset]
     def updateCoeffs(self, *coeffs):
         coeffs = coeffs[0]
         nC = len(coeffs)
         n1 = len(self.csClassCoeffs)
         n2 = n1+len(self.csModCoeffs)
         n3 = n2+len(self.spanClassCoeffs)
-        n4 = n3+len(self.shapeCoeffs)
-        n5 = n4+len(self.chordCoeffs)
+        n4 = n3+len(self.spanModCoeffs)
+        n5 = n4+len(self.shapeCoeffs)
+        n6 = n5+len(self.chordCoeffs)
         for _ in range(nC):
             if not self.masks[_]:
                 if _<n1:
@@ -211,12 +223,15 @@ class CST3DParam(object):
                     self.spanClassCoeffs[i] = coeffs[_]
                 elif _<n4 and _>=n3:
                     i = _-n3
-                    self.shapeCoeffs[i] = coeffs[_]
+                    self.spanModCoeffs[i] = coeffs[_]
                 elif _<n5 and _>=n4:
                     i = _-n4
-                    self.chordCoeffs[i] = coeffs[_]
+                    self.shapeCoeffs[i] = coeffs[_]
                 elif _>=n5:
                     i = _-n5
+                    self.chordCoeffs[i] = coeffs[_]
+                elif _>=n6:
+                    i = _-n6
                     self.offsetCoeffs[i] = coeffs[_]
                 else:
                     raise Exception("Value error: incorrect number of coefficients")
@@ -284,20 +299,23 @@ class CSTAirfoil3D(CST3DParam):
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], offsetCoeffs=[0.0], masks=[],
                  order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0):
         super().__init__(surface=surface, csClassFunc=csClassFunc, spanClassFunc=None, refLenFunc=None, csOffsetFunc=None,
-                         csClassCoeffs=csClassCoeffs, spanClassCoeffs=[], shapeCoeffs=shapeCoeffs, chordCoeffs=[1.0], offsetCoeffs=offsetCoeffs, masks=masks,
-                         order=order, refSpan=refSpan, origin=[0.0,0.0,0.0], refAxes=refAxes, shapeScale=shapeScale)
+                         csClassCoeffs=csClassCoeffs, csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], 
+                         shapeCoeffs=shapeCoeffs, chordCoeffs=[1.0], offsetCoeffs=offsetCoeffs, masks=masks,
+                         order=order, refSpan=refSpan, origin=origin, refAxes=refAxes, shapeScale=shapeScale)
         
         self.csGeo = CSTAirfoil2D(surface[:,(0,2)], classFunc=self.csClassFunc, 
                                   classCoeffs=self.csClassCoeffs, shapeCoeffs=self.shapeCoeffs, masks=self.masks,
-                                  order=order[0], shapeOffset=self.csOffsetFunc(self.offsetCoeffs), shapeScale=shapeScale)
+                                  order=order[0], shapeOffset=self.csOffsetFunc(0, self.offsetCoeffs), shapeScale=shapeScale)
 
     def calcPsi(self, etaVals, zetaVals):
         return self.csGeo.calcPsi(zetaVals)
 
-    #Calc eta cannot be and does not need to be implemented, no dependency
+    #Calc eta cannot and does not need to be implemented, no dependency
 
     def calcZeta(self, psiVals, etaVals):
         return self.csGeo.calcZeta(psiVals)
+
+    #Calc xz2y cannot and does not need to be implemented, no dependency
 
     def updateCoeffs(self, *coeffs):
         coeffs = coeffs[0]
@@ -307,7 +325,8 @@ class CSTAirfoil3D(CST3DParam):
         return 0
 
     def calcGrad(self, psiEtaZeta, h=1e-8):
-        psiVals = psiEtaZeta[:,0]; nPts = len(psiVals)
+        psiVals = psiEtaZeta[:,0]
+        nPts = len(psiVals)
         return np.vstack([self.csGeo.calcDeriv(psiVals, h), np.zeros(nPts)]).T
 
     #dPsiEtaZetadCoeff
@@ -320,18 +339,91 @@ class CSTAirfoil3D(CST3DParam):
 
 class CSTWing3D(CST3DParam):
     """
-    Class for storing cst parameterization information for extruded airfoil (Pseudo 2D)
+    Class for storing cst parameterization information for wing section
     """
-    def __init__(self, surface, csClassFunc=None, refLenFunc=None, csOffsetFunc=None,
-                 csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], offsetCoeffs=[0.0], masks=[],
-                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0):
-        super().__init__(self, surface=surface, csClassFunc=csClassFunc, spanClassFunc=None, refLenFunc=refLenFunc, csOffsetFunc=csOffsetFunc,
-                 csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], offsetCoeffs=[0.0], masks=[],
-                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0)
+    def __init__(self, surface, csClassFunc=None, csModFunc=None, spanModFunc=None, refLenFunc=None, csOffsetFunc=None,
+                 csClassCoeffs=[0.5,1.0], shapeCoeffs=[], sweepCoeffs=[], shearCoeffs=[], twistCoeffs=[], chordCoeffs=[1.0], offsetCoeffs=[0.0], masks=[],
+                 order=[5,2], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0):
 
-    class CSTWing2D(CSTAirfoil2D):
-        """
-        Sub-class needed to modify shape coefficients as function of eta
-        """
-        def __init__():
-            pass
+        csClassFunc = self.defaultClassFunction if csClassFunc is None else csClassFunc
+        csModFunc = self.defaultCsModFunction if csModFunc is None else csModFunc
+        csModCoeffs = sweepCoeffs
+        self.shapeFunc = self.defaultShapeFunction
+
+        spanModFunc = self.defaultSpanModFunc if spanModFunc is None else spanModFunc
+        spanModCoeffs = shearCoeffs+twistCoeffs
+        self.nSpanModCoeffs = [len(shearCoeffs), len(twistCoeffs)]
+
+        super().__init__(surface=surface, csClassFunc=csClassFunc, csModFunc=csModFunc, spanClassFunc=None, spanModFunc=spanModFunc, 
+                         refLenFunc=refLenFunc, csOffsetFunc=csOffsetFunc, csClassCoeffs=csClassCoeffs, csModCoeffs=csModCoeffs, spanClassCoeffs=[],
+                         spanModCoeffs=spanModCoeffs, shapeCoeffs=shapeCoeffs, chordCoeffs=chordCoeffs, offsetCoeffs=offsetCoeffs,
+                         masks=masks, order=order, refSpan=refSpan, origin=origin, refAxes=refAxes, shapeScale=shapeScale)
+
+    #Airfoil Class function
+    def defaultClassFunction(self, psiVals, *coeffs):
+        return CSTAirfoil2D.airfoilClassFunc(self, psiVals, coeffs[0])
+
+    #2D shape function
+    def defaultShapeFunction(self, psiVals, etaVals, *coeffs):
+        coeffs = coeffs[0] #List of coefficients #ncoeff = (order0+1)*(order1+1)
+        augments = np.dot(bernstein2D(psiVals, etaVals, self.order[0], self.order[1]), np.array([coeffs]).T)
+        return augments.flatten()
+
+    #LE modification
+    def defaultCsModFunction(self, etaVals, *coeffs):
+        coeffs = coeffs[0]
+        return etaVals*np.tan(coeffs[0])
+
+    #Shear and twist
+    def defaultSpanModFunc(self, psiVals, etaVals, *coeffs):
+        coeffs = coeffs[0]
+        def shearFunc(etaVals, *coeffs):
+            coeffs = coeffs[0]
+            return coeffs[0]*etaVals
+        def twistFunc(etaVals, *coeffs):
+            coeffs = coeffs[0]
+            return coeffs[0]*etaVals
+
+        shearCoeffs = coeffs[:self.nSpanModCoeffs[0]]
+        twistCoeffs = coeffs[self.nSpanModCoeffs[0]:]
+        return shearFunc(etaVals, shearCoeffs) - psiVals*np.tan(twistFunc(etaVals, twistCoeffs))
+
+    #Function to define chord length along eta
+    def defaultChordFunction(self, etaVals, *coeffs):
+        coeffs = coeffs[0]
+        return np.ones(len(etaVals))*(coeffs[0]-etaVals*(coeffs[0]-coeffs[1]))
+
+    def calcXY2Psi(self, xVals, yVals):
+        xVals = xVals - self.csModFunc(self.calcY2Eta(yVals), self.csModCoeffs)
+        return super().calcXY2Psi(xVals, yVals)
+
+    def calcPsiEta2X(self, psiVals, etaVals):
+        return super().calcPsiEta2X(psiVals, etaVals) + self.csModFunc(etaVals, self.csModCoeffs)
+
+    #Estimates psi vals from zeta values
+    ##Broken, needs to have better initial guess
+    def calcPsi(self, etaVals, zetaVals):
+        def objFunc(psiVals):
+            return self.calcZeta(psiVals, etaVals)-zetaVals
+        psiVals = scp.fsolve(objFunc, 0 if isScalar(zetaVals) else np.zeros(len(zetaVals)))
+        return psiVals
+
+    def calcEta(self, psiVals, zetaVals):
+        pass
+
+    #Explicitly calculate zeta values
+    def calcZeta(self, psiVals, etaVals):
+        zetaVals = (psiVals * self.csOffsetFunc(etaVals, self.offsetCoeffs) +
+                    self.spanModFunc(psiVals, etaVals, self.spanModCoeffs) +
+                    self.csClassFunc(psiVals, self.csClassCoeffs) * 
+                    self.shapeFunc(psiVals, etaVals, self.shapeCoeffs))
+        return zetaVals
+
+    def calcXZ2Y(self, xVals, zVals):
+        pass
+
+    def calcGrad(self, psiEtaZeta, h=1e-8):
+        pass
+    def calcJacobian(self, psiEtaZeta, h=1e-8):
+        pass
+            

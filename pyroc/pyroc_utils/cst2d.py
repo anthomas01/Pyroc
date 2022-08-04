@@ -89,33 +89,38 @@ class CST2DParam(object):
     #Default Shape Function, Bernstein Polynomials
     def defaultShapeFunction(self,psiVals,*coeffs):
         coeffs = coeffs[0] #List of coefficients
-        augments = np.dot(bernstein(psiVals, self.order),np.array([coeffs]).T)
+        augments = np.dot(bernstein1D(psiVals, self.order), np.array([coeffs]).T)
         return augments.flatten()
 
     # Functions for converting arrays of coordinates from parametric space to cartesian
     def calcX2Psi(self, xVals):
-        return xVals/self.refLen
+        psiVals = xVals/self.refLen
+        return psiVals
 
     def calcZ2Zeta(self, zVals):
-        return zVals/self.refLen
+        zetaVals = zVals/self.refLen
+        return zetaVals
 
     def calcPsi2X(self, psiVals):
-        return psiVals*self.refLen
+        xVals = psiVals*self.refLen
+        return xVals
 
     def calcZeta2Z(self, zetaVals):
-        return zetaVals*self.refLen
+        zVals = zetaVals*self.refLen
+        return zVals
 
     #Estimates psi vals from zeta values
     ##Broken, needs to have better initial guess
     def calcPsi(self, zetaVals):
         def objFunc(psiVals):
             return self.calcZeta(psiVals)-zetaVals
-        psiVals = scp.fsolve(objFunc,0 if isScalar(zetaVals) else np.zeros(len(zetaVals)))
+        psiVals = scp.fsolve(objFunc, 0 if isScalar(zetaVals) else np.zeros(len(zetaVals)))
         return psiVals
 
     #Explicitly calculate zeta values
     def calcZeta(self, psiVals):
-        return self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs) + psiVals*(self.shapeOffset/self.refLen)
+        zetaVals = self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)+psiVals*(self.shapeOffset/self.refLen)
+        return zetaVals
 
     #Update zeta values from internal psi values
     def updateZeta(self):
@@ -124,7 +129,8 @@ class CST2DParam(object):
 
     #Calculate cartesian of any parametric set and return
     def calcCoords(self, psiZeta):
-        return np.vstack([self.calcPsi2X(psiZeta[:,0]),self.calcZeta2Z(psiZeta[:,1])]).T
+        coords = np.vstack([self.calcPsi2X(psiZeta[:,0]),self.calcZeta2Z(psiZeta[:,1])]).T
+        return coords
 
     #Update internal coordinates from internal parametric coords and return
     def updateCoords(self):
@@ -134,7 +140,8 @@ class CST2DParam(object):
 
     #Calculate psi,zeta from coords
     def coords2PsiZeta(self, coords):
-        return np.vstack([self.calcX2Psi(coords[:,0]),self.calcZ2Zeta(coords[:,1])]).T
+        psiZeta = np.vstack([self.calcX2Psi(coords[:,0]),self.calcZ2Zeta(coords[:,1])]).T
+        return psiZeta
 
     #Set Psi values and update zeta
     def setPsiZeta(self, psiVals):
@@ -195,7 +202,8 @@ class CST2DParam(object):
         return np.array(dZetadPsi)
 
     def getDeriv(self):
-        return self.calcDeriv(self.psiZeta[:,0])
+        deriv = self.calcDeriv(self.psiZeta[:,0])
+        return deriv
 
     #dZetadCoeffs jacobian matrix [nPts, nCoeffs]
     def calcJacobian(self, psiVals, h=1e-8):
