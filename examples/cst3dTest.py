@@ -3,8 +3,6 @@ import numpy as np
 from scipy.spatial import Delaunay
 import matplotlib.pyplot as plt
 from pyroc.pyroc_utils.cst3d import CSTAirfoil3D, CSTWing3D
-import stl
-from stl import mesh
 
 ##########################################################################
 
