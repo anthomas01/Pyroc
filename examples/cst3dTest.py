@@ -8,9 +8,14 @@ import matplotlib.pyplot as plt
 
 #Constants
 rootChord = 1.0
+tipChord = 0.25 * rootChord
+span = 4.0 * rootChord
+totalSweep = np.radians(20.0)
+totalShear = 0.25
+totalTwist = np.radians(10.0)
 
 psiVals = np.linspace(0, 1, 100)
-etaVals = np.linspace(0, 1, 30)
+etaVals = np.linspace(0, 1, 10)
 psi, eta = np.meshgrid(psiVals, etaVals)
 psi, eta = psi.flatten(), eta.flatten()
 psiEtaZeta = np.array(list(zip(psi,eta,np.zeros_like(psi))))
@@ -26,54 +31,37 @@ tri = Delaunay(np.array([psi,eta]).T)
 ##########################################################################
 
 ##Plot Wing ex: ## Origin at LE of root chord
-# tipChord = 0.25 * rootChord
-# span = 4.0 * rootChord
-# totalSweep = np.radians(20.0)
-# totalShear = 0.25
-# totalTwist = np.radians(10.0)
 
-# upper = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
-#                   chordCoeffs=[rootChord, tipChord])
-# lower = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
-#                   chordCoeffs=[rootChord, tipChord], shapeScale=-1.0)
+upper = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
+                  chordCoeffs=[rootChord, tipChord])
+lower = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
+                  chordCoeffs=[rootChord, tipChord], shapeScale=-1.0)
 
 ##########################################################################
 """
 Uncomment this block for any tutorial above
 """
 
-# upper.setPsiEtaZeta(psi, eta)
-# uCoords = upper.updateSurface()
-# lower.setPsiEtaZeta(psi, eta)
-# lCoords = lower.updateSurface()
+upper.setPsiEtaZeta(psi, eta)
+uCoords = upper.updateCoords()
+lower.setPsiEtaZeta(psi, eta)
+lCoords = lower.updateCoords()
 
-# fig = plt.figure()
-# ax = fig.add_subplot(1, 1, 1, projection='3d')
-# ax.plot_trisurf(uCoords[:,0], uCoords[:,1], uCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
-# ax.plot_trisurf(lCoords[:,0], lCoords[:,1], lCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
-# ax.set_xlabel("x")
-# ax.set_ylabel("y")
-# ax.set_zlabel("z")
-# ax.axes.set_xlim3d(left=-span/2, right=span/2) 
-# ax.axes.set_ylim3d(bottom=0, top=span) 
-# ax.axes.set_zlim3d(bottom=-span/2, top=span/2)
-# plt.show()
+fig = plt.figure()
+ax = fig.add_subplot(1, 1, 1, projection='3d')
+ax.plot_trisurf(uCoords[:,0], uCoords[:,1], uCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
+ax.plot_trisurf(lCoords[:,0], lCoords[:,1], lCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
+ax.set_xlabel("x")
+ax.set_ylabel("y")
+ax.set_zlabel("z")
+ax.axes.set_xlim3d(left=-span/2, right=span/2) 
+ax.axes.set_ylim3d(bottom=0, top=span) 
+ax.axes.set_zlim3d(bottom=-span/2, top=span/2)
+plt.show()
 
 ##########################################################################
 
 #3d Design GUI Example
-tipChord = 0.25 * rootChord
-span = 4.0 * rootChord
-totalSweep = np.radians(20.0)
-totalShear = 0.25
-totalTwist = np.radians(10.0)
-
-upper = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
-                  chordCoeffs=[rootChord, tipChord])
-upper.setPsiEtaZeta(psi, eta)
-lower = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
-                  chordCoeffs=[rootChord, tipChord], shapeScale=-1.0)
-lower.setPsiEtaZeta(psi, eta)
 
 geo = GeoEx(surfaces=[upper, lower])
 p = PyrocDesign(geo,mode='3d')
