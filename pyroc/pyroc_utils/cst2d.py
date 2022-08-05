@@ -48,6 +48,7 @@ class CST2DParam(object):
 
     def __init__(self, coords, classFunc=None, classCoeffs=[], shapeCoeffs=[], masks=[], 
                  order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
+        ###COPY EVERY ARRAY/LIST
         #Original coordinates. Used for comparing fit, ie printing fit residuals
         self.origCoords = np.copy(coords)
         #Number of points
