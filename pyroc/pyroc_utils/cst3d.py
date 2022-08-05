@@ -31,11 +31,11 @@ class CST3DParam(object):
                  refAxes=[[1.0,0.0,0.0],[0.0,1.0,0.0]], shapeScale=1.0):
         ##Coordinates
         #Original coordinates. Used for comparing fit, ie printing fit residuals
-        self.origSurface = surface
+        self.origSurface = np.copy(surface)
         #Number of coordinate points
         self.nPts = len(self.origSurface[:,0])
         #Internally stored, updated coordinates
-        self.surface = self.origSurface
+        self.surface = np.copy(self.origSurface)
 
         ##Reference values/functions
         #cross section class function
@@ -52,9 +52,9 @@ class CST3DParam(object):
         self.csOffsetFunc = self.defaultOffsetFunction if csOffsetFunc is None else csOffsetFunc
 
         #Order of shape functions, first is order of cs shape func, second is order of span
-        self.order = order
+        self.order = order.copy()
         #Reference length - extrusion distance/longitudinal distance
-        self.refSpan = refSpan
+        self.refSpan = float(refSpan)
         #Origin
         self.origin = np.array(origin)
         #Reference Axis - extrusion direction/rotation axis
@@ -65,30 +65,30 @@ class CST3DParam(object):
 
         ##Design Variable Coefficients
         #Cross Section Class Function coefficients
-        self.csClassCoeffs = csClassCoeffs
+        self.csClassCoeffs = csClassCoeffs.copy()
         #Cross section modification coefficients
-        self.csModCoeffs = csModCoeffs
+        self.csModCoeffs = csModCoeffs.copy()
         #Span Class Function Coefficients
-        self.spanClassCoeffs = spanClassCoeffs
+        self.spanClassCoeffs = spanClassCoeffs.copy()
         #Span modification function coefficients
-        self.spanModCoeffs = spanModCoeffs
+        self.spanModCoeffs = spanModCoeffs.copy()
         #Shape Function Coefficients
         numShape = (self.order[0]+1)*(self.order[1]+1)
         if len(shapeCoeffs)==numShape:
-            self.shapeCoeffs = shapeCoeffs
+            self.shapeCoeffs = shapeCoeffs.copy()
         else:
             self.shapeCoeffs = [shapeScale for _ in range(numShape)]
         #Reference length function coefficients
-        self.chordCoeffs = chordCoeffs
+        self.chordCoeffs = chordCoeffs.copy()
         #Offset Coefficients
-        self.offsetCoeffs = offsetCoeffs
+        self.offsetCoeffs = offsetCoeffs.copy()
 
         #Variable Masks
         self.nCoeff = len(self.getCoeffs())
-        self.masks = [0 for _ in range(self.nCoeff)] if len(masks)==0 else masks
+        self.masks = [0 for _ in range(self.nCoeff)] if len(masks)==0 else masks.copy()
 
         #Set initial parameterization values from original coordinates
-        self.psiEtaZeta = self.surface2PsiEtaZeta(self.origSurface)
+        self.psiEtaZeta = self.coords2PsiEtaZeta(self.origSurface)
 
     #Default function to define chord length along eta
     def defaultChordFunction(self, etaVals, *coeffs):
@@ -154,7 +154,7 @@ class CST3DParam(object):
         return surface
 
     #Calculate cartesian of any parametric set and return
-    def calcSurface(self, psiEtaZeta):
+    def calcCoords(self, psiEtaZeta):
         transSurface = np.vstack([self.calcPsiEta2X(psiEtaZeta[:,0], psiEtaZeta[:,1]),
                                   self.calcEta2Y(psiEtaZeta[:,1]),
                                   self.calcEtaZeta2Z(psiEtaZeta[:,1], psiEtaZeta[:,2])]).T
@@ -162,17 +162,17 @@ class CST3DParam(object):
         return surface
 
     #Update internal coordinates from internal parametric coords and return
-    def updateSurface(self):
+    def updateCoords(self):
         self.updateZeta()
-        self.surface = self.calcSurface(self.psiEtaZeta)
+        self.surface = self.calcCoords(self.psiEtaZeta)
         return self.surface
 
     #Calculate psi,eta,zeta from surface
-    def surface2PsiEtaZeta(self, surface):
+    def coords2PsiEtaZeta(self, surface):
         transSurface = self.transformSurface(surface)
-        psiEtaZeta =  np.vstack([self.calcXY2Psi(transSurface[:,0], transSurface[:,1]),
-                                 self.calcY2Eta(transSurface[:,1]),
-                                 self.calcYZ2Zeta(transSurface[:,1],transSurface[:,2])]).T
+        psiVals = self.calcXY2Psi(transSurface[:,0], transSurface[:,1])
+        etaVals = self.calcY2Eta(transSurface[:,1])
+        psiEtaZeta =  np.vstack([psiVals, etaVals, self.calcZeta(psiVals,etaVals)]).T
         return psiEtaZeta
 
     #Set psi/eta values and update zeta
@@ -369,12 +369,12 @@ class CSTWing3D(CST3DParam):
         augments = np.dot(bernstein2D(psiVals, etaVals, self.order[0], self.order[1]), np.array([coeffs]).T)
         return augments.flatten()
 
-    #LE modification
+    #LE modification, default linear dist
     def defaultCsModFunction(self, etaVals, *coeffs):
         coeffs = coeffs[0]
         return etaVals*np.tan(coeffs[0])
 
-    #Shear and twist
+    #Shear and twist, default linear dist
     def defaultSpanModFunc(self, psiVals, etaVals, *coeffs):
         coeffs = coeffs[0]
         def shearFunc(etaVals, *coeffs):
@@ -388,10 +388,10 @@ class CSTWing3D(CST3DParam):
         twistCoeffs = coeffs[self.nSpanModCoeffs[0]:]
         return shearFunc(etaVals, shearCoeffs) - psiVals*np.tan(twistFunc(etaVals, twistCoeffs))
 
-    #Function to define chord length along eta
+    #Function to define chord length along eta, default linear dist
     def defaultChordFunction(self, etaVals, *coeffs):
         coeffs = coeffs[0]
-        return np.ones(len(etaVals))*(coeffs[0]-etaVals*(coeffs[0]-coeffs[1]))
+        return coeffs[0]-etaVals*(coeffs[0]-coeffs[1])
 
     def calcXY2Psi(self, xVals, yVals):
         xVals = xVals - self.csModFunc(self.calcY2Eta(yVals), self.csModCoeffs)

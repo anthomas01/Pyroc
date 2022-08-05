@@ -49,18 +49,18 @@ class CST2DParam(object):
     def __init__(self, coords, classFunc=None, classCoeffs=[], shapeCoeffs=[], masks=[], 
                  order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
         #Original coordinates. Used for comparing fit, ie printing fit residuals
-        self.origCoords = coords
+        self.origCoords = np.copy(coords)
         #Number of points
         self.nPts = len(self.origCoords[:,0])
         #Internally stored, updated coordinates
-        self.coords = self.origCoords
+        self.coords = np.copy(self.origCoords)
         #reference length/chord
-        self.refLen = refLen
+        self.refLen = float(refLen)
 
         #Function that controls class (Baseline shape before augmentation)
         self.classFunc = self.defaultClassFunction if classFunc is None else classFunc
         #Coefficients for class function
-        self.classCoeffs = classCoeffs
+        self.classCoeffs = classCoeffs.copy()
 
         #Order of augmenting polynomial
         self.order = int(order)
@@ -68,15 +68,15 @@ class CST2DParam(object):
         #Coeffs for shape function, weights for augmenting bernstein polynomials
         #   Use shapeScale=-1.0 to set surface negative
         if len(shapeCoeffs)==self.order+1:
-            self.shapeCoeffs = shapeCoeffs
+            self.shapeCoeffs = shapeCoeffs.copy()
         else:
-            self.shapeCoeffs =  [shapeScale for _ in range(self.order+1)]
+            self.shapeCoeffs =  [float(shapeScale) for _ in range(self.order+1)]
 
         #Offset coefficient for 'trailing edge', offset at psi=1.0 is shapeOffset
-        self.shapeOffset = shapeOffset
-        #Masks on specific coefficients
+        self.shapeOffset = float(shapeOffset)
+        #Masks on specific coefficientsw
         self.nCoeff = len(self.getCoeffs())
-        self.masks = [0 for _ in range(self.nCoeff)] if len(masks)==0 else masks
+        self.masks = [0 for _ in range(self.nCoeff)] if len(masks)!=self.nCoeff else masks.copy()
 
         #Set initial parameterization values from original coordinates
         self.psiZeta = self.coords2PsiZeta(self.origCoords)
@@ -164,28 +164,24 @@ class CST2DParam(object):
     #Order of coeffs is [CLASS, SHAPE, OFFSET]
     def updateCoeffs(self,*coeffs):
         coeffs=coeffs[0]
-        nC = len(coeffs)
         n1 = len(self.classCoeffs)
         n2 = n1+self.order+1
-        for _ in range(nC):
+        for _ in range(self.nCoeff):
             if not self.masks[_]:
                 if _<n1:
-                    self.classCoeffs[_] = coeffs[_]
-                elif _<n2 and _>=n1:
+                    i = _
+                    self.classCoeffs[i] = coeffs[_]
+                elif _<n2:
                     i = _-n1
                     self.shapeCoeffs[i] = coeffs[_]
-                elif _>=n2:
+                else:
                     self.shapeOffset = coeffs[_]
         return 0
 
     #Return an ordered list of coeffs from internal coeff values
     #Order of coeffs is [CLASS, SHAPE, OFFSET]
     def getCoeffs(self):
-        coeffs = []
-        for _ in self.classCoeffs:
-            coeffs.append(_)
-        for _ in self.shapeCoeffs:
-            coeffs.append(_)
+        coeffs = self.classCoeffs+self.shapeCoeffs
         coeffs.append(self.shapeOffset)
         return coeffs
 
@@ -274,8 +270,8 @@ class CSTAirfoil2D(CST2DParam):
     """
     def __init__(self, coords, classFunc=None, classCoeffs=[0.5,1.0], shapeCoeffs=[], masks=[],
                  order=5, shapeOffset=0.0, refLen=1.0, shapeScale=1.0):
-        self.classFunc = self.airfoilClassFunc if classFunc is None else classFunc
-        super().__init__(coords=coords, classFunc=self.classFunc, classCoeffs=classCoeffs, shapeCoeffs=shapeCoeffs, masks=masks,
+        classFunc = self.airfoilClassFunc if classFunc is None else classFunc
+        super().__init__(coords, classFunc=classFunc, classCoeffs=classCoeffs, shapeCoeffs=shapeCoeffs, masks=masks,
                          order=order, shapeOffset=shapeOffset, refLen=refLen, shapeScale=shapeScale)
 
     #Class Function for an airfoil

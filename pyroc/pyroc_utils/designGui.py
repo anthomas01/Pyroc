@@ -12,9 +12,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from scipy.spatial import Delaunay
 
-from .designVars import DesignVar
-from .cst2d import *
-from .cst3d import *
+from .designVars import *
+from .miscVar import *
 
 #Testing
 
@@ -87,11 +86,11 @@ class PyrocDesign(object):
 
         surf0 = np.array([])
         for surf in self.geo.surfaces:
-            surf.updateCoords()
+            c = surf.updateCoords()
             if len(surf0)>0:
-                surf0 = np.append(surf0,surf.updateCoords(),axis=0)
+                surf0 = np.append(surf0,c,axis=0)
             else:
-                surf0 = surf.updateCoords()
+                surf0 = c
         self.ndim = len(surf0[0,:])
         bounds = np.array([[np.min(surf0[:,_]), np.max(surf0[:,_])] for _ in range(self.ndim)])
         width = 0.25
@@ -123,7 +122,7 @@ class PyrocDesign(object):
         else:
             raise Exception(str(self.mode)+' mode not implemented')
 
-        self.dvDict = self.createDvDict()
+        self.dvDict = self.createDvDict(self.geo)
         self.draw_gui()
         self.update(None)
 
@@ -178,12 +177,16 @@ class PyrocDesign(object):
             for __ in range(len(keys[_])):
                 key = keys[_][__]
                 dv = self.dvDict[surf][key]
-                dvSlider = tk.Scale(dv_frame.scrollable_frame, from_=dv.upper, to=dv.lower, orient='vertical',
-                                     variable=dv.value, command=self.update, resolution=dv.getValue()*1e-3, font=fontS)
+                if dv.getValue()<0:
+                    dvSlider = tk.Scale(dv_frame.scrollable_frame, from_=dv.lower, to=dv.upper, orient='vertical',
+                                        variable=dv.value, command=self.update, resolution=dv.getValue()*1e-3, font=fontS)
+                else:
+                    dvSlider = tk.Scale(dv_frame.scrollable_frame, from_=dv.upper, to=dv.lower, orient='vertical',
+                                        variable=dv.value, command=self.update, resolution=dv.getValue()*1e-3, font=fontS)
                 dvSlider.grid(row=0, column=c)
                 dvLabel = tk.Label(dv_frame.scrollable_frame, text=key+'S'+str(_), font=fontS)
                 dvLabel.grid(row=1, column=c)
-                dvEntry = ttk.Entry(dv_frame.scrollable_frame, textvariable=dv.value)
+                dvEntry = ttk.Entry(dv_frame.scrollable_frame, validatecommand=self.update, textvariable=dv.value)
                 dvEntry.grid(row=2, column=c)
                 c+=1
         
@@ -233,18 +236,21 @@ class PyrocDesign(object):
 
         cmd_frame.pack(side=tk.RIGHT)
 
-    def createDvDict(self):
+    def createDvDict(self, geo): #Problem with dv's is here? Create attribute to access dv's?
         dvDict = OrderedDict()
-        dvList = self.geo.getCoeffs()
+        dvList = geo.getCoeffs()
         for _ in range(len(dvList)):
             dvSet = dvList[_]
-            dvDict['dvSet'+str(_)] = {}
+            dvDict['dvSet'+str(_)] = OrderedDict()
             for __ in range(len(dvSet)):
                 dv = dvSet[__]
-                if type(dv) == list:
-                    dvDict['dvSet'+str(_)][dv[0]] = DesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3])
+                if isScalar(dv):
+                    if dv==0:
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = DesignVar('dv'+str(__),tk.DoubleVar(value=dv),-1,1)
+                    else:
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = DesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv)
                 else:
-                    dvDict['dvSet'+str(_)]['dv'+str(__)] = DesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv)
+                    dvDict['dvSet'+str(_)][dv[0]] = DesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3])
         return dvDict
 
     def setLimits(self):
@@ -269,10 +275,13 @@ class PyrocDesign(object):
             self.plotAx.axes.set_ylim([self.lim[1,0],self.lim[1,1]])
         elif self.mode =='3d':
             for surf in self.geo.surfaces:
-                newCoords = surf.updateCoords()
-                param = surf.getParam()
-                xv, yv = param[:,0], param[:,1]
+                x=np.linspace(0.0,1.0,self.resolution[0].get())
+                y=np.linspace(0.0,1.0,self.resolution[1].get())
+                xv,yv = np.meshgrid(x,y)
+                xv,yv = xv.flatten(), yv.flatten()
                 tri = Delaunay(np.array([xv,yv]).T)
+                surf.setPsiEtaZeta(xv,yv)
+                newCoords = surf.updateCoords()
                 self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
             self.plotAx.set_xlabel('x')
             self.plotAx.set_ylabel('y')
@@ -282,114 +291,27 @@ class PyrocDesign(object):
             self.plotAx.axes.set_zlim3d([self.lim[2,0],self.lim[2,1]])
         self.canvas.draw()
 
+class GeoEx():
+    def __init__(self, surfaces=[], coeffPairs=None):
+        self.surfaces = surfaces
+        self.nSurf = len(self.surfaces)
+        self.coeffPairs = coeffPairs
+        self.coeffs = self.getCoeffs()
 
-#Examples
-# class GeoEx():
-#     def __init__(self, surfaces=[], coeffPairs=None):
-#         self.surfaces = surfaces
-#         self.coeffPairs = coeffPairs
+    def updateCoeffs(self,coeffs):
+        self.coeffs = []
+        for _ in range(self.nSurf):
+            # if self.coeffPairs is not None:
+            #     oldCoeffs = self.surfaces[_].getCoeffs()
+            #     for __ in range(len(oldCoeffs)): #Loop through coefficients
+            #         for i in range(len(self.coeffPairs[:,0])):
+            #             if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
+            #                 coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
+            self.coeffs.append(coeffs[_])
+            self.surfaces[_].updateCoeffs(self.coeffs[-1])
 
-#     def updateCoeffs(self,coeffs):
-#         for _ in range(len(self.surfaces)):
-#             surf = self.surfaces[_]
-#             oldCoeffs = surf.getCoeffs()
-#             for __ in range(len(oldCoeffs)): #Loop through coefficients
-#                 if self.coeffPairs is not None:
-#                     for i in range(len(self.coeffPairs[:,0])):
-#                         if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
-#                             coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
-#             surf.updateCoeffs(coeffs[_])
-#             surf.updateCoords()     
-
-#     def getCoeffs(self):
-#         coeffs = []
-#         for _ in range(len(self.surfaces)):
-#             surf = self.surfaces[_]
-#             coeffs.append(surf.getCoeffs())
-#         return coeffs
-
-#2d Example
-# x=np.linspace(0,1.0,100)
-# z=np.zeros_like(x)
-# arr = np.array(list(zip(x,z)))
-# cst = CSTAirfoil2D(arr,order=7)
-# geo = GeoEx([CSTAirfoil2D(arr,order=3,shapeOffset=0.01),CSTAirfoil2D(arr,order=2,shapeScale=-1.0,shapeOffset=0.00)])
-
-#3d Example
-# rootChord = 1.0
-# tipChord = 1.0 * rootChord
-# span = 6.0 * rootChord
-# sweepAngle = np.radians(5.0)
-# twistAngle = np.radians(5.0)
-# refAxes = np.array([[1.0,0.0,0.0],[np.sin(sweepAngle),np.cos(sweepAngle),0.0]])
-
-# xVals = np.linspace(0,rootChord,80)
-# yVals = np.linspace(0,span,50)
-# xv,yv = np.meshgrid(xVals,yVals)
-# xv = xv.flatten()
-# yv = yv.flatten()
-# psiVals = np.linspace(0,1,len(xVals))
-# etaVals = np.linspace(0,1,len(yVals))
-# psiv, etav = np.meshgrid(psiVals,etaVals)
-# psiv = psiv.flatten()
-# etav = etav.flatten()
-# surface1 = np.array(list(zip(xv,yv,np.zeros(len(xv)))))
-# surface2 = np.array(list(zip(xv,yv,np.zeros(len(xv)))))
-
-# def wingExtFunc(eta, *coeffs):
-#     coeffs = coeffs[0]
-#     return coeffs[0]*np.power(eta,coeffs[1])
-
-# def wingExtModFunc(pts, eta, *coeffs):
-#     coeffs = coeffs[0]
-#     # def angle(eta, *coeffs):
-#     #     coeffs = coeffs[0]
-#     #     return (np.exp(10*eta)-1)*coeffs[0] 
-#     # newPts = []
-#     # for _ in range(len(pts)):
-#     #     pt = pts[_]
-#     #     pt[2] += -coeffs[-1]*np.log(np.cos(angle(eta,coeffs)))
-#     #     newPts.append(pt)
-#     #return np.array(newPts)
-#     return pts
-
-# def wingChordModFunc(eta, *coeffs):
-#     coeffs = coeffs[0]
-#     return (rootChord-eta*(rootChord-coeffs[0]))
-
-# def wingTwistFunc(pts, eta, *coeffs):
-#     coeffs = coeffs[0]
-#     def angle(eta, *coeffs):
-#         coeffs = coeffs[0]
-#         return eta*coeffs[0]
-#     newPts = np.zeros([len(pts),3])
-#     for _ in range(len(pts)):
-#         pt = pts[_]
-#         rotV = rotation.rotVbyW(pt,np.array([0.0,1.0,0.0]),angle(eta,coeffs))
-#         newPts[_,:] = rotV
-#     return newPts
-
-# wingSS = CSTWing3D(surface1, csClassCoeffs=[0.5,1.0], extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[4e-5, 5.0], chordModFunc=wingChordModFunc,
-#                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0])
-# wingSS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
-
-# wingPS = CSTWing3D(surface2, csClassCoeffs=[0.5,1.0], extrudeFunc=wingExtFunc, extClassCoeffs=[2.0,3.0], extModFunc=wingExtModFunc, extModCoeffs=[4e-5, 5.0], chordModFunc=wingChordModFunc,
-#                    chordModCoeffs=[1e-1*rootChord], csModFunc=wingTwistFunc, csModCoeffs=[twistAngle], refAxes=refAxes, order=[2,0], shapeScale=-1.0)
-# wingPS.setPsiEtaZeta(psiVals=psiv,etaVals=etav)
-
-#                 #surf1, coeffN1, surf2, coeffN2
-# globalCoeffPairs = [[0,0,1,0],
-#                     [0,1,1,1],
-#                     [0,5,1,5],
-#                     [0,6,1,6],
-#                     [0,7,1,7],
-#                     [0,8,1,8],
-#                     [0,9,1,9],
-#                     [0,10,1,10],
-#                     [0,11,1,11]]
-# geo = GeoEx([wingSS, wingPS], np.array(globalCoeffPairs))
-
-#############################
-
-# p = PyrocDesign(geo,mode='2d')
-# p.root.mainloop()
+    def getCoeffs(self):
+        coeffs = []
+        for _ in range(len(self.surfaces)):
+            coeffs.append(self.surfaces[_].getCoeffs())
+        return coeffs
