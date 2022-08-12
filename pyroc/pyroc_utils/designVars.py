@@ -1,4 +1,4 @@
-class DesignVar():
+class TkDesignVar():
     def __init__(self, name, value, lower, upper, mask=0):
         self.name = name
         self.value = value

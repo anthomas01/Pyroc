@@ -246,11 +246,11 @@ class PyrocDesign(object):
                 dv = dvSet[__]
                 if isScalar(dv):
                     if dv==0:
-                        dvDict['dvSet'+str(_)]['dv'+str(__)] = DesignVar('dv'+str(__),tk.DoubleVar(value=dv),-1,1)
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-1,1)
                     else:
-                        dvDict['dvSet'+str(_)]['dv'+str(__)] = DesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv)
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv)
                 else:
-                    dvDict['dvSet'+str(_)][dv[0]] = DesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3])
+                    dvDict['dvSet'+str(_)][dv[0]] = TkDesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3])
         return dvDict
 
     def setLimits(self):
