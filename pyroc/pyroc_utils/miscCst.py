@@ -33,6 +33,17 @@ def bernstein1DDeriv(psiVals, n, h=1e-8):
                                       (n-orderRange) * np.power(psi, orderRange) * np.power(1-psi, n-orderRange-1)))
     return np.array(terms)
 
+#dBernsteindShapeCoeffs
+def bernstein1DJacobian(psiVals, n, h=1e-8):
+    if n+1>0:
+        binCoeffs = binaryCoefficients(n)
+        bernsteinJac = np.zeros((len(psiVals),n+1))
+        for _ in range(n+1):
+            bernsteinJac[:,_] = binCoeffs[_]*np.power(psiVals,_)*np.power(1-psiVals,n-_)
+    else:
+        bernsteinJac = None
+    return bernsteinJac
+
 #Taylor expanded bernstein polynomial into two dimensions
 def bernstein2D(psiVals, etaVals, nx, ny):
     xOrderRange = np.arange(nx+1)
@@ -97,7 +108,22 @@ def bernstein2DGrad(psiVals, etaVals, nx, ny, h=1e-8):
             termsPsi.append(dShapedPsi)
             termsEta.append(dShapedEta)
         termsPsi = np.array(termsPsi)
-        termseta = np.array(termsEta)
+        termsEta = np.array(termsEta)
     return termsPsi, termsEta
 
-    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
+#dBernsteindShapeCoeffs
+def bernstein2DJacobian(psiVals, etaVals, nx, ny, h=1e-8):
+    nCoeff = (nx+1)*(ny+1)
+    if nCoeff>0:
+        xBinCoeffs = binaryCoefficients(nx)
+        yBinCoeffs = binaryCoefficients(ny)
+        bernsteinJac = np.zeros((len(psiVals),nCoeff))
+
+        for i in range(nx+1):
+            xShape = xBinCoeffs*np.power(psiVals,i)*np.power(1-psiVals,nx-i)
+            for j in range(ny+1):
+                yShape = yBinCoeffs*np.power(etaVals,j)*np.power(1-etaVals,ny-j)
+                bernsteinJac[:,i*(ny+1)+j] = xShape*yShape
+    else:
+        bernsteinJac = None
+    return bernsteinJac

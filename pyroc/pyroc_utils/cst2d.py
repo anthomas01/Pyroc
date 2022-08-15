@@ -265,17 +265,16 @@ class CST2DParam(object):
         n = self.order
         nShapeCoeffs = len(self.shapeCoeffs)
         if nShapeCoeffs>0:
-            binCoeffs = binaryCoefficients(n)
-            jacShape = np.zeros((len(psiVals)),nShapeCoeffs)
-            for r in range(n+1):
-                jacShape[:,r] = self.classFunc(psiVals,self.classCoeffs)*binCoeffs[r]*np.power(psiVals,r)*np.power(1-psiVals,n-r)
+            shapeJac = bernstein1DJacobian(psiVals, n, h)
+            for _ in range(n+1):
+                shapeJac[:,_] *= self.classFunc(psiVals,self.classCoeffs)
         else:
-            jacShape = None
-        return jacShape
+            shapeJac = None
+        return shapeJac
 
     #dZetadOffset - analytic, independent of class func
     def _calcOffsetJacobian(self, psiVals, h=1e-8):
-        jacOffset = np.zeros((len(psiVals), 1))
+        jacOffset = np.zeros((len(psiVals),1))
         jacOffset[:,0] = psiVals/self.refLen
         return jacOffset
 
