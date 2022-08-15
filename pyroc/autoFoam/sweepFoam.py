@@ -11,29 +11,56 @@ class SweepParser(ArgumentParser):
         self.add_argument('-d', '--rootDir', type=str, nargs='?', default=os.getcwd(), help='Case directory, must contain constant/polyMesh generated\'s')
         self.add_argument('-c', '--cases', type=str, nargs='?', default='cases.inp', help='Path to input Sweep Control File')
         self.add_argument('-t', '--turbModel', type=str, nargs='?', default='SpalartAllmaras', help='Turbulence Model to Use for All Runs: [SA, SAFV3, KE, SST]')
-        self.add_argument('-n', '--nodes', type=int, default=1, help='Number of Nodes per job')
-        self.add_argument('-r', metavar='START', dest='start', type=int, default=0, help='Start sweep on case START in the cases.inpt file')
-        self.add_argument('-e', metavar='END', dest='end', type=int, default=0, help='End sweep on case END in the cases.inpt file')
+        self.add_argument('--wall', metavar='WALLFUNC', action='store_const', const=True, default=False, help='Turn on wall functions')
         self.add_argument('-s', '--solver', type=str, nargs='?', default=None, help='Force solver instead of automatically determining from Mach')
-        self.args = self.parse_args()
-        pass
+        self.add_argument('-n', '--nodes', type=int, default=1, help='Number of Nodes per job')
+        self.add_argument('-p', '--ppn', type=int, default=36, help='Number of processors per node')
+        self.add_argument('-r', metavar='START', dest='start', type=int, default=0, help='Start sweep on case START in the cases.inpt file')
+        self.add_argument('-e', metavar='END', dest='end', type=int, default=None, help='End sweep on case END in the cases.inpt file')
+        self.add_argument('-m', '--dirMode', type=str, nargs='?', default='flat', help='Mode to create directories in')
+        self.add_argument('-q', '--queue', default='default', help='type of job to submit - possibilities are: ["None", "slurm"]')
+        self.add_argument('--dryrun', metavar='DRYRUN', action='store_const', const=True, default=False, help='Print a dry run of the case setup')
+        args = self.parse_args()
+        
+        #TODO implement post processing type and reference data
+        self.sweepManager = SweepFOAM(baseName=args.baseName, rootDir=args.rootDir, cases=args.cases, rrange=[args.start,args.end],
+                                      forceSolver=args.solver, turbModel=args.turbModel, wallFunctions=args.wall, dirMode=args.dirMode,
+                                      nNodes=args.nodes, ppn=args.ppn, queueType=args.queue)
+        self.sweepManager()
+
+
+#TODO implement gathering data on multiple sections with different reference values
 
 class SweepFOAM(object):
     #Class for running cfd sweeps
 
-    def __init__(self, baseName, rootDir, cases='cases.inp', range=[0, None], forceSolver=None,
-                 turbModel='SpalartAllmaras', wallFunctions=False, dirMode='flat', nNodes=1, ppn=36):
+    def __init__(self, baseName, rootDir, cases='cases.inp', rrange=[0, None], forceSolver=None,
+                 turbModel='SpalartAllmaras', wallFunctions=False, dirMode='flat', nNodes=1, ppn=36,
+                 queueType='None', writeParaview=True, refChord=1.0, refArea=1.0, refLoc=[0.25,0.0,0.0],
+                 dryRun=False):
+        #Job Parameters
         self.NODES_PER_JOB = nNodes
         self.PROCS_PER_NODE = ppn
-        self.queueType = 'None'
-        self.runScriptName = 'runScript.py'
+        self.queueType = queueType
+        self.dryRun = dryRun
 
+        #Path constants
+        self.loadEnv = '/home/andrew/bin/loadDAFoam.sh' #TODO
+        self.runScriptName = 'runScript.py'
+        self.jobScriptName = 'foamJob.sh'
+        self.logName = 'log.txt'
         self.baseName = baseName
         self.rootDir = rootDir
+        self.writeParaview = writeParaview
+
+        self.resTol = 1e-6 #TODO
         
         #read input variables and cases
-        casesPath = os.path.join(self.rootDir, cases) if cases=='cases.inp' else cases
-        self.casesDict = self.readCases(casesPath, range[0], range[1])
+        if type(self.cases)==dict:
+            self.casesDict = cases
+        else:
+            casesPath = os.path.join(self.rootDir, cases) if cases=='cases.inp' else cases
+            self.casesDict = self.readCases(casesPath, rrange[0], rrange[1])
         
         #Force the solver for all cases, otherwise choose from mach number
         self.forceSolver = forceSolver
@@ -47,13 +74,18 @@ class SweepFOAM(object):
         #Setup shared options:
         self.sharedOptions = {
             'dirDict': {
-                'rootDir': self.rootDir
+                'rootDir': self.rootDir,
             },
             #TODO Implement option to sweep turb models
             'turbulenceDict': {
                 'model': self.turbModel,
-                'wallFunctions': self.wallFunctions
+                'wallFunctions': self.wallFunctions,
             },
+            'refDict': {
+                'refChord': refChord,
+                'refArea': refArea,
+                'refLocation': refLoc,
+            }
         }
 
         self.autoSweep = AutoFOAM(self.sharedOptions)
@@ -104,37 +136,144 @@ class SweepFOAM(object):
             },
         }
 
+
     def __call__(self):
+        caseKeys = self.casesDict.keys()
+        for _ in range(len(caseKeys)):
+            case = self.casesDict[caseKeys[_]]
+            if (_==0) and ('RESTART' in self.inpVars) and (case['RESTART'] not in [0]):
+                raise Exception('First case cannot have a restart code of %d' % case['RESTART'])
 
-        for caseName in self.casesDict.keys():
-            case = self.casesDict[caseName]
-            #sweepVars?
-
+            #Create case name
             if self.dirMode == 'flat':
-                rootDir = os.path.join(self.rootDir, self.baseName)
+                caseList = [self.baseName]
+                for var in self.sweptVars:
+                    caseList.append(var+str(case[var]))
+                caseName = '_'.join(caseList)
             elif self.dirMode == 'tree':
-                pass
+                caseName = self.baseName
+                for var in self.sweptVars:
+                    caseName = os.path.join(caseName, var+str(case[var]))
+            else:
+                raise Exception('Directory creation mode %s not implemented' % self.dirMode)
+            caseDir = os.path.join(self.rootDir, caseName)
+            self.casesDict[caseKeys[_]]['PATH'] = caseDir
 
-            #Create case directory
+            if self.dryRun:
+                print(caseDir)
+            elif 'RESTART' in self.inpVars and case['RESTART'] in [1]:
+                #Write change dictionary for controlDict
+                pass
+            elif 'RESTART' in self.inpVars and case['RESTART'] in [3]:
+                #Set case info from matching case
+                pass
+            else:
+                #Make directory
+                os.mkdir(caseDir)
+
+                #Set options in AutoFOAM
+                self.autoSweep.setOption('dirDict', {'rootDir': caseDir})
+                if 'RESTART' in self.inpVars:
+                    self.autoSweep.setOption('controlDict', {'restart': case['RESTART']})
+                self.autoSweep.solver = self.chooseSolver(case['MACH'])
+                solverVars = self.autoSweep.getOption('solverDict')[self.autoSweep.solver]
+
+                #Update flow vars
+                for varName in case.keys():
+                    self.autoSweep.stateDict[varName] = case[varName]
+                self.autoSweep.updateStateDict()
+
+                #Make system files
+                self.autoSweep.writeControlDict()
+                self.autoSweep.writeFvSchemesDict()
+                self.autoSweep.writeFvSolutionDict()
+                self.autoSweep.writeDecomposeParDict(self.PROCS_PER_NODE*self.NODES_PER_JOB)
+                if 'RESTART' in self.inpVars and case['RESTART'] in [2]:
+                    self.autoSweep.writeChangeDictionaryDict(solverVars)
+
+                #Make constant files
+                self.autoSweep.writeTurbulenceProperties()
+                if self.autoSweep.solver in ['DASimpleFoam']:
+                    self.autoSweep.writeTransportProperties()
+                else:
+                    self.autoSweep.writeThermophysicalProperties()
+
+                #Make 0 files
+                for var in solverVars:
+                    self.autoSweep.writeBC(var)
+                
+                #Make miscellaneous files
+                if self.writeParaview:
+                    self.autoSweep.writeParaview()
+
+                #Write runscript
+                runScriptPath = os.path.join(caseDir, self.runScriptName)
+                runScriptFile = open(runScriptPath,'w')
+                alpha = None
+                clStar = None
+                if 'ALPHA' in self.inpVars:
+                    alpha = case['ALPHA']
+                else:
+                    alpha = 0.0
+                if 'CL' in self.inpVars:
+                    clStar = case['CL']
+                elif 'ALPHA' not in self.inpVars:
+                    raise Exception('Needs either alpha or cl')
+                self.writeRunscript(runScriptFile, self.autoSweep.solver, alpha0=alpha, CLStar=clStar)
+                runScriptFile.close()
+
+                #Write jobscript
+                jobScriptPath = os.path.join(caseDir, self.jobScriptName)
+                jobScriptFile = open(jobScriptPath, 'w')
+                dependID = None
+                dependCasePath = None
+                if 'RESTART' in self.inpVars and case['RESTART'] in [2]:
+                    dependID = self.casesDict[caseKeys[_-1]]['ID']
+                    dependCasePath = self.casesDict[caseKeys[_-1]]['PATH']
+                self.writeJobScript(jobScriptFile, dependID=dependID, dependCasePath=dependCasePath, jobDir=caseDir, wallTime='0:30:00', jobName='foam_sweep', logFile=self.logName)
+                jobScriptFile.close()
+
+                #Submit Job
+                if self.queueType == 'None':
+                    pass
+                elif self.queueType == 'slurm':
+                    cmd = ['sbatch', jobScriptPath]
+                    #jobid = returnSubprocess(cmd)TODO Get job id properly
+                    #self.casesDict[casesKeys[_]]['ID'] = jobid
+                else:
+                    raise Exception('Queue type %s not supported' % self.queueType)
+            
+            
 
     def readCases(self, casesPath, start=0, end=None):
-        sweepDict = {}
+        casesDict = OrderedDict()
+        self.inpVars = []
+        self.sweptVars = []
+
         if (os.path.exists(casesPath)):
             file = open(casesPath, 'r')
             lines = file.readlines()
-            self.inpVars = lines[0].split()
-            for _ in self.inpVars:
-                sweepDict[_] = np.array([])
+            self.inpVars = [_.upper() for _ in lines[0].split()]
 
             for _ in range(len(lines)-1)[start:end]:
                 line = lines[_+1]
                 splitLines = line.split()
                 numVar = len(splitLines)
-                if numVar>0 and line[0]!='#':
+                if numVar==len(self.inpVars) and line[0]!='#':
+                    caseDict = {}
                     for __ in range(numVar):
-                        sweepDict[self.inpVars[__]] = np.append(sweepDict[self.inpVars[__]], splitLines[__])
+                        caseDict[self.inpVars[__]] = float(splitLines[__])
+                    casesDict['case%d' % _+1] = caseDict
+
+                    #Check for changing vars
+                    if _>0:
+                        if ((casesDict['case%d' % _][self.inpVars[__]] != splitLines[__])
+                             and (self.inpVars[__] not in self.sweptVars)):
+                            if self.inpVars[__] not in ['RESTART']:
+                                self.sweptVars.append(self.inpVars[__])
+                        
             file.close()
-            return sweepDict
+            return casesDict
         else:
             raise Exception(casesPath + ' does not exist')
 
@@ -142,15 +281,15 @@ class SweepFOAM(object):
         solvers = ['DASimpleFoam', 'DARhoSimpleFoam', 'DARhoSimpleCFoam']
         if self.forceSolver is None:
             if M>0.99:
-                print('Warning, supersonic solvers not well implemented')
+                print('Warning, supersonic solver not implemented')
             elif M>=0.5:
                 solver = solvers[2]
             elif M>=0.1:
                 solver = solvers[1]
-            elif M>=0.01:
+            elif M>0:
                 solver = solvers[0]
             else:
-                raise Exception('Mach Number Must Be Greater Than 0.01')
+                raise Exception('Mach number must be greater than 0')
         elif self.forceSolver in solvers:
             solver = self.forceSolver
         else:
@@ -163,7 +302,7 @@ class SweepFOAM(object):
         designSurfaces = str(walls)
 
         U0 = self.autoSweep.stateDict['U']
-        rho0 = self.autoSweep.stateDict['rho']
+        rho0 = self.autoSweep.stateDict['RHO']
         C0 = self.autoSweep.getOption('refDict')['refChord']
         A0 = self.autoSweep.getOption('refDict')['refArea']
         refLoc = str(self.autoSweep.getOption('refDict')['refLocation'])
@@ -182,7 +321,7 @@ class SweepFOAM(object):
         #TODO Remove necessity for this function by removing pygeo dependancy in pydaoptions cldriver
         if CLStar is not None:
             evalFuncs = ['CX','CY','CZ','CMX','CMY','CMZ']
-            file.write('def driveCL(DASolver, CLStar, alpha0=1.0, relax=0.8, tol=1e-4, maxit=15):\n')
+            file.write('def driveCL(DASolver, CLStar, alpha0=%f, relax=0.8, tol=1e-4, maxit=15):\n' % alpha0)
             file.write('    alpha = alpha0\n')
             file.write('    dAlpha = 1.0\n')
             file.write('    CL = 0\n')
@@ -281,7 +420,7 @@ class SweepFOAM(object):
 
         file.close()
 
-    def writeJobscript(self, file, dependID=None, dependCasePath=None, jobDir='.', wallTime='0:30:00', jobName='sweep_run', logFile='runLog.txt'):
+    def writeJobScript(self, file, dependID=None, dependCasePath=None, jobDir='.', wallTime='0:30:00', jobName='sweep_run', logFile='runLog.txt'):
         #Write jobsript for slurm queues on clusters
         if self.queueType=='slurm':
             file.write('#!/bin/bash\n')
@@ -301,7 +440,7 @@ class SweepFOAM(object):
         else:
             raise Exception('Queue type not supported')
 
-        file.write('source %s\n' % self.loadPath)
+        file.write('source %s\n' % self.loadEnv)
         #Restart from a solved flow
         if dependCasePath is not None:
             file.write('latestTime=$(foamListTimes -case %s -latestTime | tail -n 1)\n' % dependCasePath)

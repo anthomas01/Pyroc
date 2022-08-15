@@ -301,12 +301,6 @@ class GeoEx():
     def updateCoeffs(self,coeffs):
         self.coeffs = []
         for _ in range(self.nSurf):
-            # if self.coeffPairs is not None:
-            #     oldCoeffs = self.surfaces[_].getCoeffs()
-            #     for __ in range(len(oldCoeffs)): #Loop through coefficients
-            #         for i in range(len(self.coeffPairs[:,0])):
-            #             if self.coeffPairs[i,2]==_ and self.coeffPairs[i,3]==__: #Coefficient is bound
-            #                 coeffs[_][__] = coeffs[self.coeffPairs[i,0]][self.coeffPairs[i,1]]
             self.coeffs.append(coeffs[_])
             self.surfaces[_].updateCoeffs(self.coeffs[-1])
 

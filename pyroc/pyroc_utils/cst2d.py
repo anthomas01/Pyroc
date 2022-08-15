@@ -190,31 +190,39 @@ class CST2DParam(object):
     #dZetadPsi
     def calcDeriv(self, psiVals, h=1e-8):
         psih = np.copy(psiVals)
+        dZetadPsi = np.zeros_like(psih)
         for _ in range(len(psih)):
             if psih[_] == 1.0:
                 psih[_] -= h
+                dZetadPsi[_] = (self.calcZeta(psiVals)-self.calcZeta(psih))/h
             else:
                 psih[_] += h
-        dZetadPsi = (self.calcZeta(psih)-self.calcZeta(psiVals))/h
-        return np.array(dZetadPsi)
+                dZetadPsi[_] = (self.calcZeta(psih)-self.calcZeta(psiVals))/h
+        return dZetadPsi
 
     def getDeriv(self):
         deriv = self.calcDeriv(self.psiZeta[:,0])
         return deriv
 
     #dZetadCoeffs jacobian matrix [nPts, nCoeffs]
-    def calcJacobian(self, psiVals, h=1e-8):
-        jacClass = self._calcClassJacobian(psiVals)
-        jacShape = self._calcShapeJacobian(psiVals)
-        jacOffset = self._calcOffsetJacobian(psiVals)
-        jacTotal = np.array(list(zip(jacClass, jacShape, jacOffset)))
-        for _ in range(self.nCoeff):
-            if self.masks[_]:
-                jacTotal[:,_] = np.zeros(self.nCoeff)
-        return jacTotal
+    def calcParamJacobian(self, psiVals, h=1e-8):
+        totalJac = []
+        classJac = self._calcClassJacobian(psiVals, h)
+        if classJac is not None: totalJac.append(classJac.T)
+        shapeJac = self._calcShapeJacobian(psiVals, h)
+        if shapeJac is not None: totalJac.append(shapeJac.T)
+        offsetJac = self._calcOffsetJacobian(psiVals, h)
+        if offsetJac is not None: totalJac.append(offsetJac.T)
+        return np.vstack(totalJac).T
+
+    #dZdCoeffs jacobian matrix [nPts, nCoeffs]
+    #  - same as paramJacobian since all normalized by chord length
+    def calcJacobian(self, xVals, h=1e-8):
+        paramJac =  self.calcParamJacobian(self.calcX2Psi(xVals), h)
+        return paramJac*self.refLen #dZdCoeffs = dZdZZeta * dZetadCoeffs
 
     def getJacobian(self):
-        return self.calcJacobian(self.coords)
+        return self.calcJacobian(self.coords[:,0])
 
     #Perform a fit of the coefficients
     def fit2d(self):
@@ -241,27 +249,35 @@ class CST2DParam(object):
     def _calcClassJacobian(self, psiVals, h=1e-8):
         zeta = self.calcZeta(psiVals)
         nClassCoeffs = len(self.classCoeffs)
-        jacClass = np.zeros((len(psiVals)),nClassCoeffs)
-        for _ in range(nClassCoeffs):
-            self.classCoeffs[_] += h
-            zetah = self.calcZeta(psiVals)
-            jacClass[:,_] = (zetah-zeta)/h
-            self.classCoeffs[_] -= h
-        return jacClass
+        if nClassCoeffs>0:
+            classJac = np.zeros((len(psiVals),nClassCoeffs))
+            for _ in range(nClassCoeffs):
+                self.classCoeffs[_] += h
+                zetah = self.calcZeta(psiVals)
+                classJac[:,_] = (zetah-zeta)/h
+                self.classCoeffs[_] -= h
+        else:
+            classJac = None
+        return classJac
 
     #dZetadShapeCoeffs - analytic, independent of class func
     def _calcShapeJacobian(self, psiVals, h=1e-8):
         n = self.order
         nShapeCoeffs = len(self.shapeCoeffs)
-        binCoeffs = binaryCoefficients(n)
-        jacShape = np.zeros((len(psiVals)),nShapeCoeffs)
-        for r in range(n+1):
-            jacShape[:,r] = self.classFunc(psiVals,self.classCoeffs)*binCoeffs[r]*np.power(psiVals,r)*np.power(1-psiVals,n-r)
+        if nShapeCoeffs>0:
+            binCoeffs = binaryCoefficients(n)
+            jacShape = np.zeros((len(psiVals)),nShapeCoeffs)
+            for r in range(n+1):
+                jacShape[:,r] = self.classFunc(psiVals,self.classCoeffs)*binCoeffs[r]*np.power(psiVals,r)*np.power(1-psiVals,n-r)
+        else:
+            jacShape = None
         return jacShape
 
     #dZetadOffset - analytic, independent of class func
     def _calcOffsetJacobian(self, psiVals, h=1e-8):
-        return psiVals/self.refLen
+        jacOffset = np.zeros((len(psiVals), 1))
+        jacOffset[:,0] = psiVals/self.refLen
+        return jacOffset
 
 
 class CSTAirfoil2D(CST2DParam):
@@ -301,14 +317,15 @@ class CSTAirfoil2D(CST2DParam):
     #Analytical derivatives based on airfoil assumption
     #dZetadPsi - analytic, class func is known, split into S' C' and Zeta'
     def calcDeriv(self, psiVals, h=1e-8):
-        for _ in range(len(psiVals)):
-            if psiVals[_] == 0.0:
-                psiVals[_] += h
-            elif psiVals[_] == 1.0:
-                psiVals[_] -= h
+        psihVals = np.copy(psiVals)
+        for _ in range(len(psihVals)):
+            if psihVals[_] == 0.0:
+                psihVals[_] += h
+            elif psihVals[_] == 1.0:
+                psihVals[_] -= h
         
-        dZetadPsi = (self._calcClassDeriv(psiVals)*self.shapeFunc(psiVals,self.shapeCoeffs) +
-                     self.classFunc(psiVals,self.classCoeffs)*self._calcShapeDeriv(psiVals) +
+        dZetadPsi = (self._calcClassDeriv(psihVals)*self.shapeFunc(psihVals,self.shapeCoeffs) +
+                     self.classFunc(psihVals,self.classCoeffs)*self._calcShapeDeriv(psihVals) +
                      self.shapeOffset/self.refLen)
         return dZetadPsi
 
@@ -318,12 +335,8 @@ class CSTAirfoil2D(CST2DParam):
         return dClassdPsi
 
     def _calcShapeDeriv(self, psiVals, h=1e-8):
-        n,r = self.order,np.arange(self.order+1) #binary coefficient constants
-        shapeSum = np.array([np.array(self.shapeCoeffs)*binaryCoefficients(n) * (
-            r*np.power(psi,r-1)*np.power(1-psi,n-r)-(n-r)*np.power(psi,r)*np.power(1-psi,n-r-1)
-        ) for psi in psiVals])
-        dShapedPsi = np.sum(shapeSum,1)
-        return dShapedPsi
+        dShapedPsi = np.dot(bernstein1DDeriv(psiVals, self.order, h), np.array([self.shapeCoeffs]).T)
+        return dShapedPsi.flatten()
 
     #dZetadClassCoeff - analytic, class func is known
     def _calcClassJacobian(self, psiVals, h=1e-8):

@@ -1,6 +1,7 @@
 import os
 import re
 import numpy as np
+import subprocess
 
 #Functions
 def copyDir(old,new):
@@ -45,3 +46,10 @@ def getFloats(line):
     out = rx.findall(line)
     return np.array([float(i) for i in out])
 
+def returnSubprocess(cmd):
+    try:
+        byteOutput = subprocess.check_output(cmd)
+        return byteOutput.decode('UTF-8').rstrip()
+    except subprocess.CalledProcessError as e:
+        print("Error in ls -a:\n", e.output)
+        return None

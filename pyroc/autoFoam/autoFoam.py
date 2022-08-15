@@ -14,7 +14,7 @@ class FOAMOPTION(object):
             'TRef': 273.15, #Reference Temperature, K
         }
 
-        self.species = {
+        self.speciesDict = {
             'air': {
                 'molWeight': 28.964, #g/mol
                 'molDOF': 5, #Molecular degrees of freedom (diatomic)
@@ -158,20 +158,20 @@ class AutoFOAM(object):
     def updateStateDict(self, mode=0, eqnMode=0):
         if mode == 0: #Default mode is Mach, Reynolds, Temp
             if eqnMode == 0: #Default equation mode is [constGamma, sutherland, perfectGas]
-                self.stateDict['U'] = self._mach(self.stateDict['Mach'], self.stateDict['T'])
-                self.stateDict['nu'] = self._reynolds(self.stateDict['Reynolds'], self.stateDict['U'], self.getOption('refDict')['refChord'])
-                self.stateDict['mu'] = self._sutherland(self.stateDict['T'])
-                self.stateDict['rho'] = self.stateDict['mu']/self.stateDict['nu']
-                self.stateDict['p'] = self._perfectGas(self.stateDict['rho'], self.stateDict['T'])
-            elif eqnMode == 1: #Coolprop
+                self.stateDict['U'] = self._mach(self.stateDict['MACH'], self.stateDict['T'])
+                self.stateDict['NU'] = self._reynolds(self.stateDict['REYNOLDS'], self.stateDict['U'], self.getOption('refDict')['refChord'])
+                self.stateDict['MU'] = self._sutherland(self.stateDict['T'])
+                self.stateDict['RHO'] = self.stateDict['MU']/self.stateDict['NU']
+                self.stateDict['P'] = self._perfectGas(self.stateDict['RHO'], self.stateDict['T'])
+            elif eqnMode == 1: #Coolprop/janaf
                 pass
             #Turbulence parameters
-            self.stateDict['nut'] = self.stateDict['nu']*self.getOption('turbulenceDict')['TVR']
-            self.stateDict['alphat'] = self.stateDict['nut']/self.getOption('universalConstants')['PRT']
-            self.stateDict['nuTilda'] = self._spalart(self.stateDict['nu'], self.stateDict['nut'])
-            self.stateDict['k'] = 1.5*np.power(self.stateDict['U']*self.getOption('turbulenceDict')['TIR'], 2)
-            self.stateDict['epsilon'] = 0.09*self.stateDict['rho']*np.power(self.stateDict['k'], 2)/self.stateDict['nut']
-            self.stateDict['omega'] = self.stateDict['k']/self.stateDict['nut']
+            self.stateDict['NUT'] = self.stateDict['NU']*self.getOption('turbulenceDict')['TVR']
+            self.stateDict['ALPHAT'] = self.stateDict['NUT']/self.getOption('universalConstants')['PRT']
+            self.stateDict['NUTILDA'] = self._spalart(self.stateDict['NU'], self.stateDict['NUT'])
+            self.stateDict['K'] = 1.5*np.power(self.stateDict['U']*self.getOption('turbulenceDict')['TIR'], 2)
+            self.stateDict['EPSILON'] = 0.09*self.stateDict['RHO']*np.power(self.stateDict['k'], 2)/self.stateDict['RHO']
+            self.stateDict['OMEGA'] = self.stateDict['K']/self.stateDict['NUT']
         if mode == 1: # Mach, Reynolds, Altitude
             pass
 
@@ -179,9 +179,9 @@ class AutoFOAM(object):
         bcDict = self.getOption('boundaryDict')
         for var in bcDict.keys():
             if bcDict[var]['type']=='volVectorField':
-                val = np.array([[self.stateDict[var], 0.0, 0.0]]) #Set direction in runscript?
+                val = np.array([[self.stateDict[var.upper()], 0.0, 0.0]]) #Set direction in runscript?
             else:
-                val = np.array([[self.stateDict[var]]])
+                val = np.array([self.stateDict[var]])
             self.setOption('boundaryDict', {'value': val})
 
     def _sutherland(self, T):
@@ -193,8 +193,8 @@ class AutoFOAM(object):
 
     def _mach(self, Ma, T):
         specie = self.getOption('thermdynamicsDict')['specie']
-        molWeight = self.getOption('species')[specie]['molWeight']
-        dof = self.getOption('species')[specie]['molDOF']
+        molWeight = self.getOption('speciesDict')[specie]['molWeight']
+        dof = self.getOption('speciesDict')[specie]['molDOF']
         gamma = (dof+1)/dof
         RGas = 1e3*self.getOption('universalConstants')['RUniversal']/molWeight #Air Gas Constant
         U = Ma*np.sqrt(gamma*RGas*T)
@@ -206,7 +206,7 @@ class AutoFOAM(object):
 
     def _perfectGas(self, rho, T):
         specie = self.getOption('thermdynamicsDict')['specie']
-        molWeight = self.getOption('species')[specie]['molWeight']
+        molWeight = self.getOption('speciesDict')[specie]['molWeight']
         RGas = 1e3*self.getOption('universalConstants')['RUniversal']/molWeight #Air Gas Constant
         p = rho*RGas*T
         return p
@@ -286,7 +286,7 @@ class AutoFOAM(object):
                    '}' % (startFrom, startTime, endTime, deltaT, writeInterval, writePrecision, timePrecision))
         file.close()
 
-    def writeFvSchemes(self):
+    def writeFvSchemesDict(self):
         """
         Write system/fvSchemes
         """
@@ -386,7 +386,7 @@ class AutoFOAM(object):
         file.write(divSchemes)
         file.close()
 
-    def writeFvSolution(self):
+    def writeFvSolutionDict(self):
         """
         Write system/fvSolution
         """
@@ -523,7 +523,7 @@ class AutoFOAM(object):
                    '// * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * * //\n')
         file.close()
 
-    def writeChangeDictionary(self, changeVars=[]):
+    def writeChangeDictionaryDict(self, changeVars=[]):
 
         rootDir = self.getOption('rootDir')
         sysDir = self.getOption('sysDir')
@@ -587,7 +587,7 @@ class AutoFOAM(object):
 
         #Determine parameters
         model = self.getOption('thermodynamicsDict')['transportModel']
-        kinematicViscosity = self.stateDict['nu']
+        kinematicViscosity = self.stateDict['NU']
         prandtl = self.getOption('universalConstants')['Pr']
         turbulentPrandtl = self.getOption('universalConstants')['Prt']
 
@@ -617,11 +617,11 @@ class AutoFOAM(object):
         thermoType = self.getOption('thermodynamicsDict')['type']
         transportModel = self.getOption('thermdynamicsDict')['transport']
         specie = self.getOption('thermdynamicsDict')['specie']
-        molWeight = self.getOption('species')[specie]['molWeight']
-        dof = self.getOption('species')[specie]['molDOF']
+        molWeight = self.getOption('speciesDict')[specie]['molWeight']
+        dof = self.getOption('speciesDict')[specie]['molDOF']
         Cp = 0.5*(1.0+dof)*self.getOption('universalConstants')['RUniversal']
-        Hf = self.getOption('species')[specie]['Hf']
-        dynamicViscosity = self.stateDict['mu']
+        Hf = self.getOption('speciesDict')[specie]['Hf']
+        dynamicViscosity = self.stateDict['MU']
         prandtl = self.getOption('universalConstants')['Pr']
         TRef = self.getOption('universalConstants')['TRef']
 
@@ -902,7 +902,7 @@ class AutoFOAM(object):
         object is created. pyDAFoam will raise an error if a user tries to
         change these. The strings for these options are placed in a set
         """
-        return ('universalConstants', 'species')
+        return ('universalConstants', 'speciesDict')
 
     def _getDefOptions(self):
         """
