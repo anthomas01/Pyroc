@@ -15,14 +15,14 @@ class CST2DParam(object):
     classFunc: function
         Function that defines class of shapes ie airfoil, must be [zeta]=f([psi])
 
-    classCOeffs: list of floats, len=order+1
+    classCoeffs: list of floats
         Defines augmenting coefficients for class function
 
-    shapeCoeffs: list of floats, default len=2
+    shapeCoeffs: list of floats, len=order+1
         Defines weight coefficients for shape function
 
     masks: list of bool/int
-        Must be length of used coefficients, atleast order+1
+        Must be length of used coefficients
         A 1/True indicates a value is masked, a 0/False indicates it is free
         If dv is masked, one cannot change dv from init value with updateCoeffs()
 

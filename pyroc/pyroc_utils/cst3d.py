@@ -8,17 +8,80 @@ class CST3DParam(object):
 
     Parameters
     ----------
-    surface : ndarray
+    surface : ndarray [nPts, 3]
         Boundary surface to parameterize
-        must be x,y,z=[N,3]
+
+    csClassFunc : function [zeta]=f([nPsiEtaZeta, 3], *coeffs)
+        Function that defines class of shapes ie airfoil
+        Not implemented by default
+
+    csModFunc : function [X]=f([nPsiEtaZeta, 3], *coeffs)
+        Function that defines change to cross section, ie leading edge sweep modification
+        Not implemented by default
+
+    spanClassFunc: function [eta]=f([nPsiEtaZeta, 3], *coeffs)
+        Function that defines class function for span extrusion
+        Not implemented by default
+
+    spanModFunc: function [zeta]=f([nPsiEtaZeta, 3], *coeffs)
+        Function that modifies zeta along span from intial class/shape functions
+        Not implemented by default
+
+    refLenFunc: function [C]=f([nPsiEtaZeta, 3], *coeffs)
+        Function that defines reference lengths for psi/zeta based on parameterized values
+        By default, returns constant 1.0 for [nPts]
+
+    csClassCoeffs: list of float
+        Coefficients for cross section class function
+
+    csModCoeffs: list of float
+        Coefficients for cross section modification function
+
+    spanClassCoeffs: list of float
+        Coefficients for spanwise class function
+
+    spanModCoeffs: list of float
+        Coefficients for spanwise modification
+
+    shapeCoeffs: list of float
+        Coefficients for augmenting Bernstein polynomials
+        Must have length of (order[0]+1)*(order[1]+1)
+        By default, all ones
+
+    chordCoeffs: list of float
+        Coefficients for refLenFunc
+        By default, [1.0]
+
+    shapeOffsets: list of float
+        Coefficients for offset function, which by default returns shapeOffsets[0] for [nPts]
+        By default, [0.0]
+
+    masks: list of bool/int
+        Must be length of used coefficients
+        A 1/True indicates a value is masked, a 0/False indicates it is free
+        If dv is masked, one cannot change dv from init value with updateCoeffs() method
+
+    order: list of int
+        By default, first integer is order for psi dependent shape function
+        second integer is order for eta dependent shape function
 
     refSpan : float
-        Reference length in extrusion direction or along rotation axis
+        Reference length for eta
+        By default, 1.0
 
-    refAxes : ndarray
+    origin : list of float [1,3]
+        Origin for geometry object
+        By default, [0.0,0.0,0.0]
+
+    TODO refAxes : list of float [2,3]
         2D reference axes - First row is psi axis, second is zeta axis
-        By default refAxes=ndarray([[1.0,0.0,0.0],
-                                    [0.0,0.0,1.0]])
+        By default, [[1.0,0.0,0.0],
+                     [0.0,0.0,1.0]]
+
+    shapeScale: float
+        If shapeCoeffs is not given, this value will be used for initial shape coeffs.
+        shapeScale=-1.0 can be used for a -z surface initialization
+        By default, 1.0
 
     TODO Rotation/Extrusion/Modification definition modes encompassed - Different coordinate systems
          Multiple sections (Piecewise functions) - Higher level of abstraction
@@ -28,7 +91,7 @@ class CST3DParam(object):
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None,
                  csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], 
                  shapeOffsets=[0.0], masks=[], order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], 
-                 refAxes=[[1.0,0.0,0.0],[0.0,1.0,0.0]], shapeScale=1.0):
+                 refAxes=[[1.0,0.0,0.0],[0.0,0.0,1.0]], shapeScale=1.0):
         ##Coordinates
         #Original coordinates. Used for comparing fit, ie printing fit residuals
         self.origSurface = np.copy(surface)
@@ -49,6 +112,8 @@ class CST3DParam(object):
         #Reference chord function
         self.refLen = self.defaultChordFunction if refLenFunc is None else refLenFunc
 
+        self.offsetFunc = self.defaultOffsetFunction
+
         #Order of shape functions, first is order of cs shape func, second is order of span
         self.order = order.copy()
         #Reference length - extrusion distance/longitudinal distance
@@ -57,9 +122,6 @@ class CST3DParam(object):
         self.origin = np.array(origin)
         #Reference Axis - extrusion direction/rotation axis
         self.refAxes = np.array(refAxes)
-
-        #Transform the original surface coordinates to re-define them in terms of reference axis
-        #Rotation vs extrusion?
 
         ##Design Variable Coefficients
         #Cross Section Class Function coefficients
@@ -447,6 +509,7 @@ class CST3DParam(object):
         return refChordJac
 
     #dPsiEtaZetadShapeOffsetCoeffs (FD)
+    # - Although default implementation has no dependency for PEZ, we dont know calcZeta implementation here
     def _calcShapeOffsetJacobian(self, psiEtaZeta, h=1e-8):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.shapeOffsets)
@@ -469,7 +532,7 @@ class CSTAirfoil3D(CST3DParam):
     """
     def __init__(self, surface, csClassFunc=None,
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], chordCoeffs=[1.0], shapeOffsets=[0.0], masks=[],
-                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0):
+                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,0.0,1.0]]), shapeScale=1.0):
         super().__init__(surface=surface, csClassFunc=csClassFunc, spanClassFunc=None, refLenFunc=None,
                          csClassCoeffs=csClassCoeffs, csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], 
                          shapeCoeffs=shapeCoeffs, chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets, masks=masks,
@@ -644,7 +707,7 @@ class CSTWing3D(CST3DParam):
 
     #Explicitly calculate zeta values
     def calcZeta(self, psiEtaZeta):
-        zetaVals = (psiEtaZeta[:,0] * self.shapeOffsets[0] +
+        zetaVals = (psiEtaZeta[:,0]*self.offsetFunc(psiEtaZeta, self.shapeOffsets) +
                     self.spanModFunc(psiEtaZeta, self.spanModCoeffs) +
                     self.csClassFunc(psiEtaZeta, self.csClassCoeffs) * 
                     self.shapeFunc(psiEtaZeta, self.shapeCoeffs))
@@ -703,7 +766,7 @@ class CSTWing3D(CST3DParam):
 
     #Analytical gradient of zeta
     def calcGrad(self, psiEtaZeta, h=1e-8):
-        dZetadPsi = (self.shapeOffsets[0] +
+        dZetadPsi = (self.offsetFunc(psiEtaZeta, self.shapeOffsets) +
                      self._calcSpanModGrad(psiEtaZeta, h)[:,0] +
                      self._calcClassGrad(psiEtaZeta, h)[:,0] * 
                      self.shapeFunc(psiEtaZeta, self.shapeCoeffs) +
