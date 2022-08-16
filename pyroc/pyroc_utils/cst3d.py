@@ -73,9 +73,10 @@ class CST3DParam(object):
         Origin for geometry object
         By default, [0.0,0.0,0.0]
 
-    TODO refAxes : list of float [2,3]
-        2D reference axes - First row is psi axis, second is zeta axis
+    TODO refAxes : ndarray [3,3]
+        Reference axes - First row is psi axis, second is eta axis third is zeta axis
         By default, [[1.0,0.0,0.0],
+                     [0.0,1.0,0.0],
                      [0.0,0.0,1.0]]
 
     shapeScale: float
@@ -90,8 +91,7 @@ class CST3DParam(object):
 
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None,
                  csClassCoeffs=[], csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], shapeCoeffs=[], chordCoeffs=[1.0], 
-                 shapeOffsets=[0.0], masks=[], order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], 
-                 refAxes=[[1.0,0.0,0.0],[0.0,0.0,1.0]], shapeScale=1.0):
+                 shapeOffsets=[0.0], masks=[], order=[5,0], refSpan=1.0, origin=np.zeros(3), refAxes=np.eye(3), shapeScale=1.0):
         ##Coordinates
         #Original coordinates. Used for comparing fit, ie printing fit residuals
         self.origSurface = np.copy(surface)
@@ -119,9 +119,13 @@ class CST3DParam(object):
         #Reference length - extrusion distance/longitudinal distance
         self.refSpan = float(refSpan)
         #Origin
-        self.origin = np.array(origin)
+        self.origin = np.copy(origin)
         #Reference Axis - extrusion direction/rotation axis
-        self.refAxes = np.array(refAxes)
+        self.refAxes = np.copy(refAxes)
+        #Scale factor, unimplemented
+        self.scale = np.eye(3)
+        #Transformation matrix
+        self.transMat = self.scale @ self.refAxes.T
 
         ##Design Variable Coefficients
         #Cross Section Class Function coefficients
@@ -189,15 +193,17 @@ class CST3DParam(object):
         return psiEtaZeta[:,2]*self.refLen(psiEtaZeta,self.chordCoeffs)
         
     #calculate psi values from eta, zeta
+    ##Different for each inherited class
     def calcPsi(self, psiEtaZeta):
         pass
 
-    #calculate eta values form psi, zeta
+    #calculate eta values from psi, zeta
+    ##Different for each inherited class
     def calcEta(self, psiEtaZeta):
         pass
     
     #Explicitly calculate zeta values from psi, eta
-    ##Different for each mode?
+    ##Different for each inherited class
     def calcZeta(self, psiEtaZeta):
         pass
 
@@ -206,16 +212,25 @@ class CST3DParam(object):
         self.psiEtaZeta[:,2] = self.calcZeta(self.psiEtaZeta)
         return self.psiEtaZeta
 
+    #Transform surface coordinates into axes used by class functions
     def transformSurface(self, surface):
-        transSurface = surface - self.origin
+        numPts = len(surface)
+        transSurface = np.zeros_like(surface)
+        for _ in range(numPts):
+            transSurface[_,:] = np.linalg.inv(self.transMat) * (surface[_,:] - self.origin)
         return transSurface
 
+    #Untransform coordinates into given reference axes
     def untransformSurface(self, transSurface):
-        surface = transSurface + self.origin
+        numPts = len(transSurface)
+        surface = np.zeros_like(transSurface)
+        for _ in range(numPts):
+            surface[_,:] = (self.transMat * transSurface[_,:]) + self.origin
         return surface
 
     #Calculate cartesian of any parametric set and return
     def calcCoords(self, psiEtaZeta):
+        psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
         transSurface = np.vstack([self.calcPsiEta2X(psiEtaZeta[:,0], psiEtaZeta[:,1]),
                                   self.calcEta2Y(psiEtaZeta[:,1]),
                                   self.calcEtaZeta2Z(psiEtaZeta[:,1], psiEtaZeta[:,2])]).T
@@ -246,13 +261,13 @@ class CST3DParam(object):
     #Will have multiple solutions?
     def calcYZ2X(self, yVals, zVals):
         etaVals = self.calcY2Eta(yVals)
-        psiEtaZeta = np.vstack([np.zeros(len(etaVals)), etaVals, self.calcYZ2Zeta(yVals,zVals)]).T
+        psiEtaZeta = np.vstack([np.zeros_like(etaVals), etaVals, self.calcYZ2Zeta(yVals,zVals)]).T
         psiEtaZeta[:,0] = self.calcPsi(psiEtaZeta)
         xVals = self.calcPsiEta2X(psiEtaZeta)
         return xVals
 
     #Calculate y vals from x and z vals
-    #Will have multiple solutions? Pointless?
+    ##Different for each inherited class
     def calcXZ2Y(self, xVals, zVals):
         pass
 
@@ -323,7 +338,7 @@ class CST3DParam(object):
         return coeffs
 
     #Calculate gradient of zeta(psi,eta) (FD)
-    def calcGrad(self, psiEtaZeta, h=1e-8):
+    def calcParamsGrad(self, psiEtaZeta, h=1e-8):
         psiEtaZetaH = np.copy(psiEtaZeta)
         dZetadPsi = np.zeros_like(psiEtaZetaH)
         for _ in range(len(psiEtaZetaH)):
@@ -347,7 +362,7 @@ class CST3DParam(object):
 
     #Get gradient of pts
     def getGrad(self):
-        return self.calcGrad(self.psiEtaZeta)
+        return self.calcParamsGrad(self.psiEtaZeta)
 
     #Calculate dPsiEtaZetadCoeff Jacobian
     def calcParamsJacobian(self, psiEtaZeta, h=1e-8):
@@ -375,18 +390,18 @@ class CST3DParam(object):
         nCoeffs = len(coeffs)
         if nCoeffs>0 and len(surface)>0:
             psiEtaZeta = self.coords2PsiEtaZeta(surface)
-            surfaceJac = np.zeros((len(surface.flatten()), 3*nCoeffs))
+            totalJac = np.zeros((len(surface.flatten()), 3*nCoeffs))
             for _ in range(nCoeffs):
                 coeffs[_] += h
                 self.updateCoeffs(coeffs)
                 surfaceH = self.calcCoords(psiEtaZeta)
                 for __ in range(3):
-                    surfaceJac[__::3,3*_+__] = (surfaceH[:,__]-surface[:,__])/h
+                    totalJac[__::3,3*_+__] = (surfaceH[:,__]-surface[:,__])/h
                 coeffs[_] -= h
                 self.updateCoeffs(coeffs)
         else:
-            raise Exception('No Coefficients!')
-        return surfaceJac
+            raise Exception('Class has no internal coefficients!')
+        return totalJac
 
     #Get dXYZdCoeffs Jacobian
     def getJacobian(self):
@@ -532,7 +547,7 @@ class CSTAirfoil3D(CST3DParam):
     """
     def __init__(self, surface, csClassFunc=None,
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], chordCoeffs=[1.0], shapeOffsets=[0.0], masks=[],
-                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,0.0,1.0]]), shapeScale=1.0):
+                 order=[5,0], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.eye(3), shapeScale=1.0):
         super().__init__(surface=surface, csClassFunc=csClassFunc, spanClassFunc=None, refLenFunc=None,
                          csClassCoeffs=csClassCoeffs, csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], 
                          shapeCoeffs=shapeCoeffs, chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets, masks=masks,
@@ -560,7 +575,7 @@ class CSTAirfoil3D(CST3DParam):
         return
 
     #Analytical gradient of zeta
-    def calcGrad(self, psiEtaZeta, h=1e-8):
+    def calcParamsGrad(self, psiEtaZeta, h=1e-8):
         return np.vstack([self.csGeo.calcDeriv(psiEtaZeta[:,0], h), np.zeros(len(psiEtaZeta))]).T
 
     #TODO make this more efficient
@@ -624,12 +639,32 @@ class CSTAirfoil3D(CST3DParam):
             shapeOffsetJac = None
         return shapeOffsetJac
 
+    #Calc jacobian transformation matrix
+    #                              [u]                               [x]
+    # If reference coordinates are [v], and internal coordinates are [y]
+    #                              [w]                               [z]
+    #     [dU/dCoeff]   [dU/dX dU/dY dU/dZ] [dX/dCoeff]
+    # i.e [dV/dCoeff] = [dV/dX dV/dY dV/dZ]*[dY/dCoeff]
+    #     [dW/dCoeff]   [dW/dX dW/dY dW/dZ] [dZ/dCoeff]
+    def _calcTransformJacobian(self, surface, h=1e-8):
+        transformJac = np.zeros((len(surface.flatten()),3))
+        for _ in range(len(surface)):
+            #For a linear transformation, this is just the transpose of the reference axes
+            transformJac[3*_:3*(_+1),:] = self.refAxes.T
+        return transformJac
+
     #dXYZdPsiEtaZeta (analytical)
     def _calcPtsJacobian(self, psiEtaZeta, h=1e-8):
         ptsJac = np.zeros((len(psiEtaZeta.flatten()), 3))
+        #transformation matrix from normalizations
         ptsJac[0::3, 0] = self.refLen(psiEtaZeta, self.chordCoeffs)
         ptsJac[1::3, 1] = self.refSpan
         ptsJac[2::3, 2] = self.refLen(psiEtaZeta, self.chordCoeffs)
+        #Pre-multiply by transformation from coordinate axes
+        surface = self.calcCoords(psiEtaZeta)
+        transformJac = self._calcTransformJacobian(self, surface, h)
+        for _ in range(len(psiEtaZeta)):
+            ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] * ptsJac[3*_:3*(_+1),:]
         return ptsJac
 
 
@@ -639,7 +674,7 @@ class CSTWing3D(CST3DParam):
     """
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanModFunc=None, refLenFunc=None,
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], sweepCoeffs=[], shearCoeffs=[], twistCoeffs=[], chordCoeffs=[1.0, 1.0], shapeOffsets=[0.0], masks=[],
-                 order=[5,2], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.array([[1.0,0.0,0.0],[0.0,1.0,0.0]]), shapeScale=1.0):
+                 order=[5,2], refSpan=1.0, origin=[0.0,0.0,0.0], refAxes=np.eye(3), shapeScale=1.0):
 
         csClassFunc = self.defaultClassFunction if csClassFunc is None else csClassFunc
         csModFunc = self.defaultCsModFunction if csModFunc is None else csModFunc
@@ -698,12 +733,19 @@ class CSTWing3D(CST3DParam):
     ##TODO Broken, needs to have better initial guess
     def calcPsi(self, psiEtaZeta):
         def objFunc(psiVals):
-            return self.calcZeta(psiVals, psiEtaZeta[:,1])-psiEtaZeta[:,2]
-        psiVals = scp.fsolve(objFunc, 0 if isScalar(psiEtaZeta[:,2]) else np.zeros(len(psiEtaZeta[:,2])))
+            psiEtaZetaH = psiEtaZeta
+            psiEtaZetaH[:,0] = psiVals
+            return self.calcZeta(psiEtaZetaH)-psiEtaZetaH[:,2]
+        psiVals = scp.fsolve(objFunc, 0 if isScalar(psiEtaZeta[0]) else np.zeros(len(psiEtaZeta[:,0])))
         return psiVals
 
     def calcEta(self, psiEtaZeta):
-        pass
+        def objFunc(etaVals):
+            psiEtaZetaH = psiEtaZeta
+            psiEtaZetaH[:,1] = etaVals
+            return self.calcZeta(psiEtaZetaH)-psiEtaZetaH[:,2]
+        etaVals = scp.fsolve(objFunc, 0 if isScalar(psiEtaZeta[0]) else np.zeros(len(psiEtaZeta[:,0])))
+        return etaVals
 
     #Explicitly calculate zeta values
     def calcZeta(self, psiEtaZeta):
@@ -714,7 +756,14 @@ class CSTWing3D(CST3DParam):
         return zetaVals
 
     def calcXZ2Y(self, xVals, zVals):
-        pass
+        psiEtaZeta = np.zeros((len(xVals),3))
+        def objFunc(yVals):
+            psiEtaZeta[:,0] = self.calcXY2Psi(xVals, yVals)
+            psiEtaZeta[:,1] = self.calcY2Eta(yVals)
+            psiEtaZeta[:,2] = self.calcYZ2Zeta(yVals, zVals)
+            return self.calcZeta(psiEtaZeta)-psiEtaZeta[:,2]
+        yVals = scp.fsolve(objFunc, 0 if isScalar(xVals) else np.zeros(len(xVals)))
+        return yVals
 
     def updateCoeffs(self, *coeffs):
         coeffs = coeffs[0]
@@ -765,7 +814,7 @@ class CSTWing3D(CST3DParam):
         return np.vstack([dSpanModdPsi, dSpanModdEta]).T
 
     #Analytical gradient of zeta
-    def calcGrad(self, psiEtaZeta, h=1e-8):
+    def calcParamsGrad(self, psiEtaZeta, h=1e-8):
         dZetadPsi = (self.offsetFunc(psiEtaZeta, self.shapeOffsets) +
                      self._calcSpanModGrad(psiEtaZeta, h)[:,0] +
                      self._calcClassGrad(psiEtaZeta, h)[:,0] * 
@@ -862,6 +911,20 @@ class CSTWing3D(CST3DParam):
             shapeOffsetJac = None
         return shapeOffsetJac
 
+    #Calc jacobian transformation matrix
+    #                              [u]                               [x]
+    # If reference coordinates are [v], and internal coordinates are [y]
+    #                              [w]                               [z]
+    #     [dU/dCoeff]   [dU/dX dU/dY dU/dZ] [dX/dCoeff]
+    # i.e [dV/dCoeff] = [dV/dX dV/dY dV/dZ]*[dY/dCoeff]
+    #     [dW/dCoeff]   [dW/dX dW/dY dW/dZ] [dZ/dCoeff]
+    def _calcTransformJacobian(self, surface, h=1e-8):
+        transformJac = np.zeros((len(surface.flatten()),3))
+        for _ in range(len(surface)):
+            #For a linear transformation, this is just the transpose of the reference axes
+            transformJac[3*_:3*(_+1),:] = self.refAxes.T
+        return transformJac
+
     #dXYZdPsiEtaZeta (analytical)
     def _calcPtsJacobian(self, psiEtaZeta, h=1e-8):
         ptsJac = np.zeros((len(psiEtaZeta.flatten()), 3))
@@ -870,6 +933,11 @@ class CSTWing3D(CST3DParam):
         ptsJac[1::3, 1] = self.refSpan
         ptsJac[2::3, 1] = psiEtaZeta[:,2]*(self.chordCoeffs[1]-self.chordCoeffs[0])
         ptsJac[2::3, 2] = self.refLen(psiEtaZeta, self.chordCoeffs)
+        #Pre-multiply by transformation from coordinate axes
+        surface = self.calcCoords(psiEtaZeta)
+        transformJac = self._calcTransformJacobian(self, surface, h)
+        for _ in range(len(psiEtaZeta)):
+            ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] * ptsJac[3*_:3*(_+1),:]
         return ptsJac
 
     #partialXYZpartialCoeffs
