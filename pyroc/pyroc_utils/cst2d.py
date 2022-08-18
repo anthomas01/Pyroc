@@ -90,7 +90,7 @@ class CST2DParam(object):
     #Default Shape Function, Bernstein Polynomials
     def defaultShapeFunction(self,psiVals,*coeffs):
         coeffs = coeffs[0] #List of coefficients
-        augments = np.dot(bernstein1D(psiVals, self.order), np.array([coeffs]).T)
+        augments = bernstein1D(psiVals, self.order) @ coeffs
         return augments.flatten()
 
     # Functions for converting arrays of coordinates from parametric space to cartesian
@@ -334,7 +334,7 @@ class CSTAirfoil2D(CST2DParam):
         return dClassdPsi
 
     def _calcShapeDeriv(self, psiVals, h=1e-8):
-        dShapedPsi = np.dot(bernstein1DDeriv(psiVals, self.order, h), np.array([self.shapeCoeffs]).T)
+        dShapedPsi = bernstein1DDeriv(psiVals, self.order, h) @ self.shapeCoeffs
         return dShapedPsi.flatten()
 
     #dZetadClassCoeff - analytic, class func is known
