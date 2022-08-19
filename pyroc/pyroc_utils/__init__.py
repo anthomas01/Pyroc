@@ -1,11 +1,9 @@
 from .miscVar import *
 from .miscCst import *
 from .miscIO import *
-from .rotation import *
 
 from .cst2d import *
 from .cst3d import *
-from .curve import *
 
 from .designVars import *
 from .designGui import *

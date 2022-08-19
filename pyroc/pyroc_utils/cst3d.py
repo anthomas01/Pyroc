@@ -595,14 +595,15 @@ class CSTAirfoil3D(CST3DParam):
     def __init__(self, surface, csClassFunc=None,
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], chordCoeffs=[1.0], shapeOffsets=[0.0], masks=[],
                  order=[5,0], refSpan=1.0, origin=np.zeros(3), refAxes=np.eye(3), shapeScale=1.0):
+
+        self.csGeo = CSTAirfoil2D(surface[:,(0,2)], classFunc=csClassFunc, classCoeffs=csClassCoeffs,
+                                  shapeCoeffs=shapeCoeffs, masks=masks, order=order[0],
+                                  shapeOffset=shapeOffsets[0], refLen=chordCoeffs[0], shapeScale=shapeScale)
+
         super().__init__(surface=surface, csClassFunc=csClassFunc, spanClassFunc=None, refLenFunc=None,
                          csClassCoeffs=csClassCoeffs, csModCoeffs=[], spanClassCoeffs=[], spanModCoeffs=[], 
                          shapeCoeffs=shapeCoeffs, chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets, masks=masks,
                          order=order, refSpan=refSpan, origin=origin, refAxes=refAxes, shapeScale=shapeScale)
-        
-        self.csGeo = CSTAirfoil2D(surface[:,(0,2)], classFunc=self.csClassFunc, 
-                                  classCoeffs=self.csClassCoeffs, shapeCoeffs=self.shapeCoeffs, masks=self.masks,
-                                  order=order[0], shapeOffset=self.shapeOffsets[0], refLen=chordCoeffs[0], shapeScale=shapeScale)
 
     def calcPsi(self, psiEtaZeta):
         return self.csGeo.calcPsi(psiEtaZeta[:,2])
@@ -736,14 +737,14 @@ class CSTWing3D(CST3DParam):
         spanModCoeffs = shearCoeffs+twistCoeffs
         self.nSpanModCoeffs = [len(shearCoeffs), len(twistCoeffs)]
 
+        self.csGeo = CSTAirfoil2D(surface[:,(0,2)], classFunc=csClassFunc, 
+                                  classCoeffs=csClassCoeffs, shapeCoeffs=[], masks=[],
+                                  order=order[0], shapeOffset=shapeOffsets[0], shapeScale=shapeScale)
+
         super().__init__(surface=surface, csClassFunc=csClassFunc, csModFunc=csModFunc, spanClassFunc=None, spanModFunc=spanModFunc, 
                          refLenFunc=refLenFunc, csClassCoeffs=csClassCoeffs, csModCoeffs=csModCoeffs, spanClassCoeffs=[],
                          spanModCoeffs=spanModCoeffs, shapeCoeffs=shapeCoeffs, chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets,
                          masks=masks, order=order, refSpan=refSpan, origin=origin, refAxes=refAxes, shapeScale=shapeScale)
-
-        self.csGeo = CSTAirfoil2D(surface[:,(0,2)], classFunc=self.csClassFunc, 
-                                  classCoeffs=self.csClassCoeffs, shapeCoeffs=[], masks=[],
-                                  order=order[0], shapeOffset=self.shapeOffsets[0], shapeScale=shapeScale)
 
     #Airfoil Class function
     def defaultClassFunction(self, psiEtaZeta, *coeffs):
@@ -1020,15 +1021,15 @@ class CSTRevolve3D(CST3DParam):
         spanModCoeffs = shearCoeffs+twistCoeffs
         self.nSpanModCoeffs = [len(shearCoeffs), len(twistCoeffs)]
 
+        cylindrical = self.transformSurface(surface)
+        self.csGeo = CSTAirfoil2D(cylindrical[:,(2,0)], classFunc=csClassFunc, classCoeffs=csClassCoeffs,
+                                  shapeCoeffs=[], masks=[], order=order[0], shapeOffset=shapeOffsets[0],
+                                  refLen=chordCoeffs[0], shapeScale=shapeScale)
+
         super().__init__(surface=surface, csClassFunc=csClassFunc, csModFunc=csModFunc, spanClassFunc=None, spanModFunc=spanModFunc, refLenFunc=refLenFunc,
                          csClassCoeffs=csClassCoeffs, csModCoeffs=csModCoeffs, spanClassCoeffs=[], spanModCoeffs=spanModCoeffs, shapeCoeffs=shapeCoeffs,
                          chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets, masks=masks, order=order, refSpan=refSpan, origin=origin, refAxes=refAxes,
                          shapeScale=shapeScale)
-
-        cylindrical = self.transformSurface(surface)
-        self.csGeo = CSTAirfoil2D(cylindrical[:,(2,0)], classFunc=self.csClassFunc, 
-                                  classCoeffs=self.csClassCoeffs, shapeCoeffs=[], masks=[],
-                                  order=order[0], shapeOffset=self.shapeOffsets[0], refLen=self.chordCoeffs[0], shapeScale=shapeScale)
 
     #Airfoil Class function
     def defaultClassFunction(self, psiEtaZeta, *coeffs):
