@@ -94,6 +94,7 @@ class CST3DParam(object):
 
     TODO Multiple sections - Higher level of abstraction?
     TODO Overall abstraction/simplification, bugfixes
+    TODO Use internal derivatives instead of scipy optimization?
     """
 
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None,
@@ -1021,8 +1022,7 @@ class CSTRevolve3D(CST3DParam):
         spanModCoeffs = shearCoeffs+twistCoeffs
         self.nSpanModCoeffs = [len(shearCoeffs), len(twistCoeffs)]
 
-        cylindrical = self.transformSurface(surface)
-        self.csGeo = CSTAirfoil2D(cylindrical[:,(2,0)], classFunc=csClassFunc, classCoeffs=csClassCoeffs,
+        self.csGeo = CSTAirfoil2D(np.zeros((1,2)), classFunc=csClassFunc, classCoeffs=csClassCoeffs,
                                   shapeCoeffs=[], masks=[], order=order[0], shapeOffset=shapeOffsets[0],
                                   refLen=chordCoeffs[0], shapeScale=shapeScale)
 
@@ -1030,6 +1030,12 @@ class CSTRevolve3D(CST3DParam):
                          csClassCoeffs=csClassCoeffs, csModCoeffs=csModCoeffs, spanClassCoeffs=[], spanModCoeffs=spanModCoeffs, shapeCoeffs=shapeCoeffs,
                          chordCoeffs=chordCoeffs, shapeOffsets=shapeOffsets, masks=masks, order=order, refSpan=refSpan, origin=origin, refAxes=refAxes,
                          shapeScale=shapeScale)
+
+        cylindrical = self.transformSurface(surface)
+        self.csGeo = CSTAirfoil2D(cylindrical[:,(2,0)], classFunc=csClassFunc, classCoeffs=csClassCoeffs,
+                                  shapeCoeffs=[], masks=[], order=order[0], shapeOffset=shapeOffsets[0],
+                                  refLen=chordCoeffs[0], shapeScale=shapeScale)
+        
 
     #Airfoil Class function
     def defaultClassFunction(self, psiEtaZeta, *coeffs):
@@ -1067,7 +1073,7 @@ class CSTRevolve3D(CST3DParam):
     #Function to define chord length along eta, default constant
     def defaultChordFunction(self, psiEtaZeta, *coeffs):
         coeffs = coeffs[0]
-        return super().refLen(psiEtaZeta, coeffs)
+        return super().defaultChordFunction(psiEtaZeta, coeffs)
 
     #Calculate psi vals from rThetaZ vals
     def calcXYZ2Psi(self, xyz):
