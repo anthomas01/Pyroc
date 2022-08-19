@@ -27,10 +27,11 @@ tri = Delaunay(np.array([psi,eta]).T)
 # upper = CSTAirfoil3D(psiEtaZeta, refSpan=span, chordCoeffs=[rootChord])
 # lower = CSTAirfoil3D(psiEtaZeta, refSpan=span, chordCoeffs=[rootChord], shapeScale=-1.0)
 
-# upper.setPsiEtaZeta(psi, eta)
-# uCoords = upper.updateCoords()
-# lower.setPsiEtaZeta(psi, eta)
-# lCoords = lower.updateCoords()
+#psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
+#upper.setPsiEtaZeta(psiEtaZeta)
+#uCoords = upper.updateCoords()
+#lower.setPsiEtaZeta(psiEtaZeta)
+#lCoords = lower.updateCoords()
 
 # fig = plt.figure()
 # ax = fig.add_subplot(1, 1, 1, projection='3d')
@@ -53,10 +54,11 @@ tri = Delaunay(np.array([psi,eta]).T)
 # lower = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
 #                   chordCoeffs=[rootChord, tipChord], shapeScale=-1.0)
 
-# upper.setPsiEtaZeta(psi, eta)
-# uCoords = upper.updateCoords()
-# lower.setPsiEtaZeta(psi, eta)
-# lCoords = lower.updateCoords()
+#psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
+#upper.setPsiEtaZeta(psiEtaZeta)
+#uCoords = upper.updateCoords()
+#lower.setPsiEtaZeta(psiEtaZeta)
+#lCoords = lower.updateCoords()
 
 # fig = plt.figure()
 # ax = fig.add_subplot(1, 1, 1, projection='3d')
@@ -79,9 +81,10 @@ upper = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeff
 lower = CSTWing3D(psiEtaZeta, refSpan=span, sweepCoeffs=[totalSweep], shearCoeffs=[totalShear], twistCoeffs=[totalTwist],
                   chordCoeffs=[rootChord, tipChord], shapeScale=-1.0)
 
-upper.setPsiEtaZeta(psi, eta)
+psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
+upper.setPsiEtaZeta(psiEtaZeta)
 uCoords = upper.updateCoords()
-lower.setPsiEtaZeta(psi, eta)
+lower.setPsiEtaZeta(psiEtaZeta)
 lCoords = lower.updateCoords()
 
 geo = GeoEx(surfaces=[upper, lower])

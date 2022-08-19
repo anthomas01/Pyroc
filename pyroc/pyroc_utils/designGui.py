@@ -280,7 +280,8 @@ class PyrocDesign(object):
                 xv,yv = np.meshgrid(x,y)
                 xv,yv = xv.flatten(), yv.flatten()
                 tri = Delaunay(np.array([xv,yv]).T)
-                surf.setPsiEtaZeta(xv,yv)
+                psiEtaZeta = np.vstack([xv, yv, np.zeros_like(xv)]).T
+                surf.setPsiEtaZeta(psiEtaZeta)
                 newCoords = surf.updateCoords()
                 self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
             self.plotAx.set_xlabel('x')
@@ -292,6 +293,7 @@ class PyrocDesign(object):
         self.canvas.draw()
 
 class GeoEx():
+    #Experimental class for coupling cst surfaces
     def __init__(self, surfaces=[], coeffPairs=None):
         self.surfaces = surfaces
         self.nSurf = len(self.surfaces)
