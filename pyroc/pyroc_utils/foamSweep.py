@@ -19,8 +19,8 @@ parser.add_argument('-e', metavar='END', dest='end', type=int, default=0, help='
 args = parser.parse_args()
 
 #Sample Input File (sweep.ctl)
-#Implemented Options are: [ALPHA MACH RE TEMP] [NUMITER RESTART]
-#                         [CL MACH RE TEMP]
+#Implemented Options are: [ALPHA MACH REYNOLDS TEMP] [NUMITER RESTART]
+#                         [CL    MACH REYNOLDS TEMP]
 '''
 ALPHA MACH RE      TEMP NUMITER RESTART
 3     0.5  6000000 273  2000    0

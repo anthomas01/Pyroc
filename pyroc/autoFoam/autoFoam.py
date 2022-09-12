@@ -82,8 +82,8 @@ class FOAMOPTION(object):
         self.turbulenceDict = {
             'model': 'SpalartAllmaras',
             'wallFunctions': False,
-            'TVR': 3.0, #Turbulent Viscosity Ratio
-            'TIR': 0.01, #Turbulent Intensity Ratio
+            'Tvr': 3.0, #Turbulent Viscosity Ratio
+            'Tir': 0.01, #Turbulent Intensity Ratio
         }
 
         self.boundaryDict = {
@@ -158,6 +158,7 @@ class AutoFOAM(object):
     def updateStateDict(self, mode=0, eqnMode=0):
         if mode == 0: #Default mode is Mach, Reynolds, Temp
             if eqnMode == 0: #Default equation mode is [constGamma, sutherland, perfectGas]
+                self.stateDict['T'] = self.stateDict['TEMP']
                 self.stateDict['U'] = self._mach(self.stateDict['MACH'], self.stateDict['T'])
                 self.stateDict['NU'] = self._reynolds(self.stateDict['REYNOLDS'], self.stateDict['U'], self.getOption('refDict')['refChord'])
                 self.stateDict['MU'] = self._sutherland(self.stateDict['T'])
@@ -166,23 +167,24 @@ class AutoFOAM(object):
             elif eqnMode == 1: #Coolprop/janaf
                 pass
             #Turbulence parameters
-            self.stateDict['NUT'] = self.stateDict['NU']*self.getOption('turbulenceDict')['TVR']
-            self.stateDict['ALPHAT'] = self.stateDict['NUT']/self.getOption('universalConstants')['PRT']
+            self.stateDict['NUT'] = self.stateDict['NU']*self.getOption('turbulenceDict')['Tvr']
+            self.stateDict['ALPHAT'] = self.stateDict['NUT']/self.getOption('universalConstants')['Prt']
             self.stateDict['NUTILDA'] = self._spalart(self.stateDict['NU'], self.stateDict['NUT'])
-            self.stateDict['K'] = 1.5*np.power(self.stateDict['U']*self.getOption('turbulenceDict')['TIR'], 2)
-            self.stateDict['EPSILON'] = 0.09*self.stateDict['RHO']*np.power(self.stateDict['k'], 2)/self.stateDict['RHO']
+            self.stateDict['K'] = 1.5*np.power(self.stateDict['U']*self.getOption('turbulenceDict')['Tir'], 2)
+            self.stateDict['EPSILON'] = 0.09*self.stateDict['RHO']*np.power(self.stateDict['K'], 2)/self.stateDict['RHO']
             self.stateDict['OMEGA'] = self.stateDict['K']/self.stateDict['NUT']
         if mode == 1: # Mach, Reynolds, Altitude
             pass
 
         #Update dictionary containing boundary conditions
         bcDict = self.getOption('boundaryDict')
-        for var in bcDict.keys():
+        bcKeys = list(bcDict.keys())
+        for var in bcKeys:
             if bcDict[var]['type']=='volVectorField':
                 val = np.array([[self.stateDict[var.upper()], 0.0, 0.0]]) #Set direction in runscript?
             else:
-                val = np.array([self.stateDict[var]])
-            self.setOption('boundaryDict', {'value': val})
+                val = np.array([self.stateDict[var.upper()]])
+            self.setOption('boundaryDict', {var: {'value': val}})
 
     def _sutherland(self, T):
         MU0 = 1.716e-5
@@ -192,7 +194,7 @@ class AutoFOAM(object):
         return mu
 
     def _mach(self, Ma, T):
-        specie = self.getOption('thermdynamicsDict')['specie']
+        specie = self.getOption('thermodynamicsDict')['specie']
         molWeight = self.getOption('speciesDict')[specie]['molWeight']
         dof = self.getOption('speciesDict')[specie]['molDOF']
         gamma = (dof+1)/dof
@@ -205,7 +207,7 @@ class AutoFOAM(object):
         return nu
 
     def _perfectGas(self, rho, T):
-        specie = self.getOption('thermdynamicsDict')['specie']
+        specie = self.getOption('thermodynamicsDict')['specie']
         molWeight = self.getOption('speciesDict')[specie]['molWeight']
         RGas = 1e3*self.getOption('universalConstants')['RUniversal']/molWeight #Air Gas Constant
         p = rho*RGas*T
@@ -216,6 +218,7 @@ class AutoFOAM(object):
         for _ in range(100):
             x3 = np.power(nuTilda/nu,3)
             nuTilda = nu_t*(x3+np.power(7.1,3))/x3
+        return nuTilda
 
     def writeOpenFoamHeader(self, file, className, location, objectName):
         """
@@ -252,7 +255,7 @@ class AutoFOAM(object):
         #Determine parameters from restart code:
         res = controlDict['restart']
         startFrom = 'startTime'
-        if res['restart']==1:
+        if int(res)==1:
             startFrom = 'latestTime'
         startTime = 0
         endTime = controlDict['numIter']
@@ -261,7 +264,10 @@ class AutoFOAM(object):
         writePrecision = controlDict['precision']
         timePrecision = controlDict['precision']
 
-        filePath = os.path.join(rootDir, sysDir, fileName)
+        sysPath = os.path.join(rootDir, sysDir)
+        if not os.path.exists(sysPath):
+            os.mkdir(sysPath)
+        filePath = os.path.join(sysPath, fileName)
         file = open(filePath, 'w')
         self.writeOpenFoamHeader(file, 'dictionary', sysDir, fileName)
 
@@ -483,8 +489,8 @@ class AutoFOAM(object):
         Write system/decomposeParDict
         """
 
-        rootDir = self.getOption('rootDir')
-        sysDir = self.getOption('sysDir')
+        rootDir = self.getOption('dirDict')['rootDir']
+        sysDir = self.getOption('dirDict')['sysDir']
         fileName = 'decomposeParDict'
         decompDict = self.getOption('decomposeParDict')
 
@@ -612,14 +618,15 @@ class AutoFOAM(object):
         fileName = 'thermophysicalProperties'
 
         #Determine parameters
-        equationOfState = self.getOption('thermdynamicsDict')['equationOfState']
-        thermoModel = self.getOption('thermdynamicsDict')['model']
+        equationOfState = self.getOption('thermodynamicsDict')['equationOfState']
+        thermoModel = self.getOption('thermodynamicsDict')['thermo']
         thermoType = self.getOption('thermodynamicsDict')['type']
-        transportModel = self.getOption('thermdynamicsDict')['transport']
-        specie = self.getOption('thermdynamicsDict')['specie']
+        transportModel = self.getOption('thermodynamicsDict')['transport']
+        specie = self.getOption('thermodynamicsDict')['specie']
         molWeight = self.getOption('speciesDict')[specie]['molWeight']
         dof = self.getOption('speciesDict')[specie]['molDOF']
-        Cp = 0.5*(1.0+dof)*self.getOption('universalConstants')['RUniversal']
+        RGas = 1e3*self.getOption('universalConstants')['RUniversal']/molWeight
+        Cp = 0.5*(1.0+dof)*RGas
         Hf = self.getOption('speciesDict')[specie]['Hf']
         dynamicViscosity = self.stateDict['MU']
         prandtl = self.getOption('universalConstants')['Pr']
@@ -635,7 +642,7 @@ class AutoFOAM(object):
                    '    specie                specie;\n'
                    '    equationOfState       %s;\n'
                    '    energy                sensibleInternalEnergy;\n'
-                   '    thermo                %s\n'
+                   '    thermo                %s;\n'
                    '    type                  %s;\n'
                    '    transport             %s;\n'
                    '}\n'
@@ -673,10 +680,13 @@ class AutoFOAM(object):
         fileName = 'turbulenceProperties'
 
         #Determine parameters
-        model = self.getOption('turbulenceProperties')['model']
+        model = self.getOption('turbulenceDict')['model']
         turbulentPrandtl = self.getOption('universalConstants')['Prt']
 
-        filePath = os.path.join(rootDir, constDir, fileName)
+        constPath = os.path.join(rootDir, constDir)
+        if not os.path.exists(constPath):
+            os.mkdir(constPath)
+        filePath = os.path.join(constPath, fileName)
         file = open(filePath, 'w')
         self.writeOpenFoamHeader(file, 'dictionary', constDir, fileName)
 
@@ -716,12 +726,15 @@ class AutoFOAM(object):
         else:
             raise Exception('Unhandled combination of variable type and values')
 
-        filePath = os.path.join(rootDir, bcDir, fileName)
+        bcPath = os.path.join(rootDir, bcDir)
+        if not os.path.exists(bcPath):
+            os.mkdir(bcPath)
+        filePath = os.path.join(bcPath, fileName)
         file = open(filePath, 'w')
         self.writeOpenFoamHeader(file, varType, bcDir, fileName)
 
         file.write('dimensions      [%s];\n\n' % ' '.join([str(_) for _ in varDim]))
-        file.write('%s   uniform %s;\n\n' % (internalField, internalValue))
+        file.write('%s uniform %s;\n\n' % (internalField, internalValue))
         file.write('boundaryField\n'
                    '{\n')
         for boundaryName in self.boundaries.keys():
@@ -733,7 +746,7 @@ class AutoFOAM(object):
             file.write('    %s\n'
                        '    {\n' % (boundaryName))
             if boundaryCondition in ['fixedZero']:
-                value = '0.0' if varType=='volScalarField' else '(0.0 0.0 0.0)'
+                value = 'uniform 0.0' if varType=='volScalarField' else 'uniform (0.0 0.0 0.0)'
                 file.write('        type            fixedValue;\n'
                            '        value           %s;\n'
                            '   }\n' % value)

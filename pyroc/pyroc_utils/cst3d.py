@@ -713,7 +713,7 @@ class CSTAirfoil3D(CST3DParam):
         ptsJac[2::3, 2] = self.refLen(psiEtaZeta, self.chordCoeffs)
         #Pre-multiply by transformation from coordinate axes
         surface = self.calcCoords(psiEtaZeta)
-        transformJac = self._calcTransformJacobian(self, surface, h)
+        transformJac = self._calcTransformJacobian(surface, h)
         for _ in range(len(psiEtaZeta)):
             ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:]
         return ptsJac
@@ -899,8 +899,8 @@ class CSTWing3D(CST3DParam):
             n1,n2 = self.csClassCoeffs
             psiVals = psiEtaZeta[:,0]
             csClassJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            csClassJac[2::3, 2] = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiVals,self.shapeCoeffs)
-            csClassJac[2::3, 5] = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiVals,self.shapeCoeffs)
+            csClassJac[2::3, 2] = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiEtaZeta,self.shapeCoeffs)
+            csClassJac[2::3, 5] = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiEtaZeta,self.shapeCoeffs)
         else:
             csClassJac = None
         return csClassJac
@@ -930,9 +930,10 @@ class CSTWing3D(CST3DParam):
         nx,ny = self.order
         nCoeffs = len(self.shapeCoeffs)
         if nCoeffs>0:
-            shapeJac = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
+            shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            shapeJac[2::3, 2::3] = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
             for _ in range(nCoeffs):
-                shapeJac[:,_] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
+                shapeJac[2::3,3*_+2] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
         else:
             shapeJac = None
         return shapeJac
@@ -951,7 +952,7 @@ class CSTWing3D(CST3DParam):
         nCoeffs = len(self.shapeOffsets)
         if nCoeffs>0:
             shapeOffsetJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            shapeOffsetJac[2::3, 2::3] = psiEtaZeta[:,0]
+            shapeOffsetJac[2::3, 2] = psiEtaZeta[:,0]
         else:
             shapeOffsetJac = None
         return shapeOffsetJac
@@ -980,7 +981,7 @@ class CSTWing3D(CST3DParam):
         ptsJac[2::3, 2] = self.refLen(psiEtaZeta, self.chordCoeffs)
         #Pre-multiply by transformation from coordinate axes
         surface = self.calcCoords(psiEtaZeta)
-        transformJac = self._calcTransformJacobian(self, surface, h)
+        transformJac = self._calcTransformJacobian(surface, h)
         for _ in range(len(psiEtaZeta)):
             ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:]
         return ptsJac
@@ -1271,8 +1272,8 @@ class CSTRevolve3D(CST3DParam):
             n1,n2 = self.csClassCoeffs
             psiVals = psiEtaZeta[:,0]
             csClassJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            csClassJac[2::3, 2] = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiVals,self.shapeCoeffs)
-            csClassJac[2::3, 5] = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiVals,self.shapeCoeffs)
+            csClassJac[2::3, 2] = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiEtaZeta,self.shapeCoeffs)
+            csClassJac[2::3, 5] = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiEtaZeta,self.shapeCoeffs)
         else:
             csClassJac = None
         return csClassJac
@@ -1301,9 +1302,10 @@ class CSTRevolve3D(CST3DParam):
         nx,ny = self.order
         nCoeffs = len(self.shapeCoeffs)
         if nCoeffs>0:
-            shapeJac = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
+            shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            shapeJac[2::3, 2::3] = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
             for _ in range(nCoeffs):
-                shapeJac[:,_] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
+                shapeJac[2::3,3*_+2] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
         else:
             shapeJac = None
         return shapeJac
@@ -1361,7 +1363,7 @@ class CSTRevolve3D(CST3DParam):
         ptsJac[2::3, 1] = psiEtaZeta[:,0] * 0 + 0 # dRefLen/dEta = 0, dCsModFunc/dEta = 0
         #Pre-multiply by transformation from coordinate axes
         surface = self.calcCoords(psiEtaZeta)
-        transformJac = self._calcTransformJacobian(self, surface, h)
+        transformJac = self._calcTransformJacobian(surface, h)
         for _ in range(len(psiEtaZeta)):
             ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:]
         return ptsJac

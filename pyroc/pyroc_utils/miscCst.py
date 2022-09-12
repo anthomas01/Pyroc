@@ -120,9 +120,9 @@ def bernstein2DJacobian(psiVals, etaVals, nx, ny, h=1e-8):
         bernsteinJac = np.zeros((len(psiVals),nCoeff))
 
         for i in range(nx+1):
-            xShape = xBinCoeffs*np.power(psiVals,i)*np.power(1-psiVals,nx-i)
+            xShape = xBinCoeffs[i]*np.power(psiVals,i)*np.power(1-psiVals,nx-i)
             for j in range(ny+1):
-                yShape = yBinCoeffs*np.power(etaVals,j)*np.power(1-etaVals,ny-j)
+                yShape = yBinCoeffs[j]*np.power(etaVals,j)*np.power(1-etaVals,ny-j)
                 bernsteinJac[:,i*(ny+1)+j] = xShape*yShape
     else:
         bernsteinJac = None

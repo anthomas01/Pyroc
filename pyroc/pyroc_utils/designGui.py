@@ -97,6 +97,7 @@ class PyrocDesign(object):
         self.lim = np.array([[bounds[_,0]-width, bounds[_,1]+width] for _ in range(self.ndim)])
         self.textLim = np.array([[tk.StringVar(value=str(self.lim[_,0])), tk.StringVar(value=str(self.lim[_,1]))] for _ in range(self.ndim)])
         self.resolution = np.array([tk.IntVar(value=int(res[0])), tk.IntVar(value=int(res[1]))])
+        self.sensitivity = None
         
         # Instantiate the MPL figure
         self.fig = plt.figure(figsize=(figsize,figsize), dpi=100, facecolor='white')
@@ -188,6 +189,14 @@ class PyrocDesign(object):
                 dvLabel.grid(row=1, column=c)
                 dvEntry = ttk.Entry(dv_frame.scrollable_frame, validatecommand=self.update, textvariable=dv.value)
                 dvEntry.grid(row=2, column=c)
+                dvHideSens = tk.Radiobutton(dv_frame.scrollable_frame, command=self.showSens, text='Disable Sens', variable=dv.showSens, value=0, font=fontM)
+                dvHideSens.grid(row=3, column=c)
+                dvShowSensX = tk.Radiobutton(dv_frame.scrollable_frame, command=self.showSens, text='X Sensitivity', variable=dv.showSens, value=1, font=fontM)
+                dvShowSensX.grid(row=4, column=c)
+                dvShowSensY = tk.Radiobutton(dv_frame.scrollable_frame, command=self.showSens, text='Y Sensitivity', variable=dv.showSens, value=2, font=fontM)
+                dvShowSensY.grid(row=5, column=c)
+                dvShowSensZ = tk.Radiobutton(dv_frame.scrollable_frame, command=self.showSens, text='Z Sensitivity', variable=dv.showSens, value=3, font=fontM)
+                dvShowSensZ.grid(row=6, column=c)
                 c+=1
         
         dv_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
@@ -236,7 +245,7 @@ class PyrocDesign(object):
 
         cmd_frame.pack(side=tk.RIGHT)
 
-    def createDvDict(self, geo): #Problem with dv's is here? Create attribute to access dv's?
+    def createDvDict(self, geo):
         dvDict = OrderedDict()
         dvList = geo.getCoeffs()
         for _ in range(len(dvList)):
@@ -246,11 +255,11 @@ class PyrocDesign(object):
                 dv = dvSet[__]
                 if isScalar(dv):
                     if dv==0:
-                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-1,1)
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-1,1,tk.IntVar(value=0))
                     else:
-                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv)
+                        dvDict['dvSet'+str(_)]['dv'+str(__)] = TkDesignVar('dv'+str(__),tk.DoubleVar(value=dv),-2*dv,5*dv,tk.IntVar(value=0))
                 else:
-                    dvDict['dvSet'+str(_)][dv[0]] = TkDesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3])
+                    dvDict['dvSet'+str(_)][dv[0]] = TkDesignVar(dv[0],tk.DoubleVar(value=dv[1]),dv[2],dv[3],tk.IntVar(value=0))
         return dvDict
 
     def setLimits(self):
@@ -259,31 +268,66 @@ class PyrocDesign(object):
                 self.lim[_,__] = float(self.textLim[_,__].get())
         self.update(None)
 
+    def showSens(self):
+        surfs = list(self.dvDict.keys())
+        keys = [list(self.dvDict[_].keys()) for _ in surfs]
+        for _ in range(len(surfs)):
+            surf = surfs[_]
+            for __ in range(len(keys[_])):
+                key = keys[_][__]
+                dv = self.dvDict[surf][key]
+                sens = dv.showSens.get()
+                if sens>0:
+                    self.sensitivity = [_,__,sens-1]
+                    return
+
+    def makeColormap(self, seq):
+        cdict = {'red': [], 'green': [], 'blue': []}
+        x = np.linspace(0,1, len(seq))
+        for _ in range(len(seq)):
+            tone = seq[_]
+            cdict['red'].append([x[_], 1-tone, 1-tone])
+            cdict['green'].append([x[_], 0, 0])
+            cdict['blue'].append([x[_], tone, tone])
+        return matplotlib.colors.LinearSegmentedColormap('CustomMap', cdict)
+
     def update(self, e):
         self.geo.updateCoeffs([[self.dvDict[_][__].getValue() for __ in self.dvDict[_].keys()] for _ in self.dvDict.keys()])
         self.plotAx.cla()
+        numSurf = len(self.geo.surfaces)
 
         if self.mode == '2d':
-            for surf in self.geo.surfaces:
+            for _ in range(numSurf):
+                surf = self.geo.surfaces[_]
                 x=np.linspace(0.0,1.0,self.resolution[0].get())
                 surf.setPsiZeta(x)
                 newCoords = surf.updateCoords()
                 self.plotAx.plot(newCoords[:,0], newCoords[:,1])
             self.plotAx.set_xlabel('x')
-            self.plotAx.set_ylabel('y')
+            self.plotAx.set_ylabel('z')
             self.plotAx.axes.set_xlim([self.lim[0,0],self.lim[0,1]])
             self.plotAx.axes.set_ylim([self.lim[1,0],self.lim[1,1]])
         elif self.mode =='3d':
-            for surf in self.geo.surfaces:
-                x=np.linspace(0.0,1.0,self.resolution[0].get())
-                y=np.linspace(0.0,1.0,self.resolution[1].get())
+            for _ in range(numSurf):
+                surf = self.geo.surfaces[_]
+                x=np.linspace(1e-6,1.0-1e-6,self.resolution[0].get())
+                y=np.linspace(1e-6,1.0-1e-6,self.resolution[1].get())
                 xv,yv = np.meshgrid(x,y)
                 xv,yv = xv.flatten(), yv.flatten()
                 tri = Delaunay(np.array([xv,yv]).T)
                 psiEtaZeta = np.vstack([xv, yv, np.zeros_like(xv)]).T
                 surf.setPsiEtaZeta(psiEtaZeta)
                 newCoords = surf.updateCoords()
-                self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices, cmap=plt.cm.Spectral)
+                if self.sensitivity is not None and self.sensitivity[0]==_:
+                    sensitivity = surf.calcJacobian(newCoords)[self.sensitivity[2]::3,3*self.sensitivity[1]+self.sensitivity[2]]
+                else:
+                    sensitivity = newCoords[:,2]
+                if np.max(sensitivity)==np.min(sensitivity):
+                    normSens = sensitivity
+                else:
+                    normSens = np.abs(sensitivity-np.min(sensitivity))/(np.max(sensitivity)-np.min(sensitivity))
+                cmap = self.makeColormap(normSens)
+                self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices, cmap=cmap)
             self.plotAx.set_xlabel('x')
             self.plotAx.set_ylabel('y')
             self.plotAx.set_zlabel('z')
