@@ -15,13 +15,12 @@ try:
 except:
     pass
 
-class Interface:
-
+class Interface():
     def __init__(self, mode='2d', figsize=4):
         self.mode = mode
 
         self.root = tk.Tk()
-        self.root.wm_title('PYRoc Design GUI - v0.0.1')
+        self.root.wm_title('Example Gui')
         self.root.geometry('800x600')
 
         try:

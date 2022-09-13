@@ -1,5 +1,6 @@
 from .DVGeometry import *
 from ...pyroc_utils import *
+from scipy import sparse
 
 class DVGeometryCST(DVGeometry):
     #Baseclass for manipulating CST geometry
@@ -76,7 +77,7 @@ class DVGeometryCST(DVGeometry):
 
         self.curPtSet = ptSetName
         # We've postponed things as long as we can...do the finalization.
-        self._finalize()
+        self.finalize()
 
         # Set all coef Values back to initial values
         #self.param.coef = self.origParamCoef.copy()
@@ -101,4 +102,62 @@ class DVGeometryCST(DVGeometry):
 
         return Xfinal
 
+    def computeTotalJacobian(self, ptSetName, config=None):
+        """Return the total point jacobian in CSR format since we
+        need this for TACS"""
     
+        # Finalize the object, if not done yet
+        self.finalize()
+        self.curPtSet = ptSetName
+
+        if self.JT[ptSetName] is not None:
+            return
+
+        # compute the derivatives of the coefficients of this level wrt all of the design
+        # variables at this level and all levels above
+        J_temp = self.computeDVJacobian(config=config)
+
+        # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
+        if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
+            dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocoo()
+            # We have a slight problem...dPtdCoef only has the shape
+            # functions, so it size Npt x Coef. We need a matrix of
+            # size 3*Npt x 3*nCoef, where each non-zero entry of
+            # dPtdCoef is replaced by value * 3x3 Identity matrix.
+
+            # Extract IJV Triplet from dPtdCoef
+            row = dPtdCoef.row
+            col = dPtdCoef.col
+            data = dPtdCoef.data
+
+            new_row = np.zeros(3 * len(row), "int")
+            new_col = np.zeros(3 * len(row), "int")
+            new_data = np.zeros(3 * len(row))
+
+            # Loop over each entry and expand:
+            for j in range(3):
+                new_data[j::3] = data
+                new_row[j::3] = row * 3 + j
+                new_col[j::3] = col * 3 + j
+
+            # Size of New Matrix:
+            Nrow = dPtdCoef.shape[0] * 3
+            Ncol = dPtdCoef.shape[1] * 3
+
+            # Create new matrix in coo-dinate format and convert to csr
+            new_dPtdCoef = sparse.coo_matrix((new_data, (new_row, new_col)), shape=(Nrow, Ncol)).tocsr()
+
+            # Do Sparse Mat-Mat multiplication and resort indices
+            if J_temp is not None:
+                self.JT[ptSetName] = (J_temp.T * new_dPtdCoef.T).tocsr()
+                self.JT[ptSetName].sort_indices()
+        else:
+            self.JT[ptSetName] = None
+
+    #Internal Functions
+
+    def finalize(self):
+        if self.finalized:
+            return
+        self.finalized = True
+        self.nPtAttachFull = len(self.param.coef)

@@ -11,7 +11,9 @@ class CSTMultiParam(object):
         else:
             print("Path does not exist - '%s'" % filepath)
             self.filepath = None
+
         self.coef = None
+        self.embeddedSurfaces = {}
 
     def attachPoints(self, coordinates, ptSetName):
         pass

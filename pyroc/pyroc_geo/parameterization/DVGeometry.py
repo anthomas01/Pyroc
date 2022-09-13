@@ -1,10 +1,13 @@
 from ...pyroc_utils import *
+from pyspline.utils import openTecplot, closeTecplot, writeTecplot1D, writeTecplot3D
 from collections import OrderedDict
+from mpi4py import MPI
+from scipy import sparse
 
 class DVGeometry(object):
     #Baseclass for manipulating geometry
 
-    def __init__(self, name=None):
+    def __init__(self, filepath, name=None):
         self.DV_listGlobal = OrderedDict()  # Global Design Variable List
         self.DV_listLocal = OrderedDict()  # Local Design Variable List
 
@@ -14,8 +17,16 @@ class DVGeometry(object):
         self.ptSetNames = []
         self.name = name
 
+        self.finalized = False
+        self.dtype = "d"
+
         self.JT = {}
         self.nPts = {}
+
+        # derivative counters for offsets
+        self.nDV_T = None  # total number of design variables
+        self.nDVG_T = None
+        self.nDVL_T = None
 
     def addPointSet(self, points, ptName, origConfig=True):
         """
@@ -144,7 +155,10 @@ class DVGeometry(object):
            design variables
         """
 
-        i=0
+        # compute the various DV offsets
+        DVCountGlobal, DVCountLocal = self.getDVOffsets()
+
+        i = DVCountGlobal
         dIdxDict = {}
         for key in self.DV_listGlobal:
             dv = self.DV_listGlobal[key]
@@ -154,14 +168,13 @@ class DVGeometry(object):
                 dIdxDict[dv.name] = dIdx[:, i : i + dv.nVal]
             i += dv.nVal
 
-        i = 0
+        i = DVCountLocal
         for key in self.DV_listLocal:
             dv = self.DV_listLocal[key]
             if out1D:
                 dIdxDict[dv.name] = np.ravel(dIdx[:, i : i + dv.nVal])
             else:
                 dIdxDict[dv.name] = dIdx[:, i : i + dv.nVal]
-
             i += dv.nVal
 
         return dIdxDict
@@ -184,14 +197,17 @@ class DVGeometry(object):
         dIdx : array
            Flattened array of length getNDV().
         """
+        # compute the various DV offsets
+        DVCountGlobal, DVCountLocal = self.getDVOffsets()
         dIdx = np.zeros(self.nDV_T, self.dtype)
-        i = 0
+
+        i = DVCountGlobal
         for key in self.DV_listGlobal:
             dv = self.DV_listGlobal[key]
             dIdx[i : i + dv.nVal] = dIdxDict[dv.name]
             i += dv.nVal
 
-        i = 0
+        i = DVCountLocal
         for key in self.DV_listLocal:
             dv = self.DV_listLocal[key]
             dIdx[i : i + dv.nVal] = dIdxDict[dv.name]
@@ -215,29 +231,281 @@ class DVGeometry(object):
         names.extend(list(self.DV_listLocal.keys()))
         return names
 
+    def totalSensitivity(self, dIdpt, ptSetName, comm=None, config=None):
+        r"""
+        This function computes sensitivity information.
+
+        Specifically, it computes the following:
+        :math:`\frac{dX_{pt}}{dX_{DV}}^T \frac{dI}{d_{pt}}`
+
+        Parameters
+        ----------
+        dIdpt : array of size (Npt, 3) or (N, Npt, 3)
+
+            This is the total derivative of the objective or function
+            of interest with respect to the coordinates in
+            'ptSetName'. This can be a single array of size (Npt, 3)
+            **or** a group of N vectors of size (Npt, 3, N). If you
+            have many to do, it is faster to do many at once.
+
+        ptSetName : str
+            The name of set of points we are dealing with
+
+        comm : MPI.IntraComm
+            The communicator to use to reduce the final derivative. If
+            comm is None, no reduction takes place.
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+
+
+        Returns
+        -------
+        dIdxDict : dic
+            The dictionary containing the derivatives, suitable for
+            pyOptSparse
+
+        """
+
+        # Make dIdpt at least 3D
+        if len(dIdpt.shape) == 2:
+            dIdpt = np.array([dIdpt])
+        N = dIdpt.shape[0]
+
+        # generate the total Jacobian self.JT
+        self.computeTotalJacobian(ptSetName, config=config)
+
+        # now that we have self.JT compute the Mat-Mat multiplication
+        nDV = self.getNDV()
+        dIdx_local = np.zeros((N, nDV), "d")
+        for i in range(N):
+            if self.JT[ptSetName] is not None:
+                dIdx_local[i, :] = self.JT[ptSetName].dot(dIdpt[i, :, :].flatten())
+
+        if comm:  # If we have a comm, globaly reduce with sum
+            dIdx = comm.allreduce(dIdx_local, op=MPI.SUM)
+        else:
+            dIdx = dIdx_local
+
+        # Now convert to dict:
+        dIdx = self.convertSensitivityToDict(dIdx)
+
+        return dIdx
+
     def totalSensitivityProd(self, vec, ptSetName, config=None):
-        pass
+        r"""
+        This function computes sensitivity information.
+
+        Specifically, it computes the following:
+        :math:`\frac{dX_{pt}}{dX_{DV}} \times\mathrm{vec}`
+
+        This is useful for forward AD mode.
+
+        Parameters
+        ----------
+        vec : dictionary whose keys are the design variable names, and whose
+              values are the derivative seeds of the corresponding design variable.
+
+        ptSetName : str
+            The name of set of points we are dealing with
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+
+        Returns
+        -------
+        xsdot : array (Nx3) -> Array with derivative seeds of the surface nodes.
+        """
+
+        self.computeTotalJacobian(ptSetName, config=config)  # This computes and updates self.JT
+
+        names = self.getVarNames()
+        newvec = np.zeros(self.getNDV(), self.dtype)
+
+        i = 0
+        for vecKey in vec:
+            # check if the seed DV is actually a design variable for the DVGeo object
+            if vecKey not in names:
+                raise Exception(f"{vecKey} is not a design variable, the full list is:{names}")
+
+        # perform the product
+        if self.JT[ptSetName] is None:
+            xsdot = np.zeros((0, 3))
+        else:
+            xsdot = self.JT[ptSetName].T.dot(newvec)
+            xsdot = np.reshape(xsdot, (len(xsdot)//3, 3))
+        return xsdot
 
     def totalSensitivityTransProd(self, vec, ptSetName, config=None):
-        pass
+        r"""
+        This function computes sensitivity information.
+
+        Specifically, it computes the following:
+        :math:`\frac{dX_{pt}}{dX_{DV}}^T \times\mathrm{vec}`
+
+        This is useful for reverse AD mode.
+
+        Parameters
+        ----------
+        dIdpt : array of size (Npt, 3) or (N, Npt, 3)
+
+            This is the total derivative of the objective or function
+            of interest with respect to the coordinates in
+            'ptSetName'. This can be a single array of size (Npt, 3)
+            **or** a group of N vectors of size (Npt, 3, N). If you
+            have many to do, it is faster to do many at once.
+
+        ptSetName : str
+            The name of set of points we are dealing with
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+
+        Returns
+        -------
+        dIdxDict : dic
+            The dictionary containing the derivatives, suitable for
+            pyOptSparse
+        """
+
+        self.computeTotalJacobian(ptSetName, config=config)
+
+        # perform the product
+        if self.JT[ptSetName] is None:
+            xsdot = np.zeros((0, 3))
+        else:
+            xsdot = self.JT[ptSetName].dot(np.ravel(vec))
+
+        # Pack result into dictionary
+        xsdict = {}
+        names = self.getVarNames()
+        i = 0
+        for key in names:
+            if key in self.DV_listGlobal:
+                dv = self.DV_listGlobal[key]
+            elif key in self.DV_listLocal:
+                dv = self.DV_listLocal[key]
+            xsdict[key] = xsdot[i : i + dv.nVal]
+            i += dv.nVal
+        return xsdict
 
     def computeDVJacobian(self, config=None):
-        pass
+        """
+        return J_temp for a given config
+        """
+        # These routines are not recursive. They compute the derivatives at this level and
+        # pass information down one level for the next pass call from the routine above
+
+        # This is going to be DENSE in general
+        J_attach = self.attachedPtJacobian(config=config)
+
+        # This is the sparse jacobian for the local DVs that affect
+        # Control points directly.
+        J_local = self.localDVJacobian(config=config)
+
+        J_temp = None
+
+        # add them together
+        if J_attach is not None:
+            J_temp = sparse.lil_matrix(J_attach)
+
+        if J_local is not None:
+            if J_temp is None:
+                J_temp = sparse.lil_matrix(J_local)
+            else:
+                J_temp += J_local
+
+        return J_temp
 
     def computeTotalJacobian(self, ptSetName, config=None):
-        pass
-
-    def computeTotalJacobianCS(self, ptSetName, config=None):
+        """Return the total point jacobian in CSR format since we
+        need this for TACS"""
         pass
 
     def addVariablesPyOpt(self, optProb, globalVars=True, localVars=True, ignoreVars=None, freezeVars=None):
-        pass
+        """
+        Add the current set of variables to the optProb object.
 
-    def writeTecplot(self, fileName, solutionTime=None):
-        pass
+        Parameters
+        ----------
+        optProb : pyOpt_optimization class
+            Optimization problem definition to which variables are added
 
-    def writePointSet(self, name, fileName, solutionTime=None):
-        pass
+        globalVars : bool
+            Flag specifying whether global variables are to be added
+
+        localVars : bool
+            Flag specifying whether local variables are to be added
+
+        ignoreVars : list of strings
+            List of design variables the user DOESN'T want to use
+            as optimization variables.
+
+        freezeVars : list of string
+            List of design variables the user WANTS to add as optimization
+            variables, but to have the lower and upper bounds set at the current
+            variable. This effectively eliminates the variable, but it the variable
+            is still part of the optimization.
+        """
+        if ignoreVars is None:
+            ignoreVars = set()
+        if freezeVars is None:
+            freezeVars = set()
+
+        # Add design variables from the master:
+        varLists = OrderedDict(
+            [
+                ("globalVars", self.DV_listGlobal),
+                ("localVars", self.DV_listLocal),
+            ]
+        )
+
+        for lst in varLists:
+            if (lst == "globalVars" and globalVars or lst == "localVars" and localVars):
+                for key in varLists[lst]:
+                    if key not in ignoreVars:
+                        dv = varLists[lst][key]
+                        if key not in freezeVars:
+                            optProb.addVarGroup(
+                                dv.name, dv.nVal, "c", value=dv.value, lower=dv.lower, upper=dv.upper, scale=dv.scale
+                            )
+                        else:
+                            optProb.addVarGroup(
+                                dv.name, dv.nVal, "c", value=dv.value, lower=dv.value, upper=dv.value, scale=dv.scale
+                            )
+
+    def writeTecplot(self, name, fileName, solutionTime=None, config=None):
+        """
+        Write a given point set to a tecplot file
+
+        Parameters
+        ----------
+        name : str
+             The name of the point set to write to a file
+
+        fileName : str
+           Filename for tecplot file. Should have no extension, an
+           extension will be added
+
+        SolutionTime : float
+            Solution time to write to the file. This could be a fictitious time to
+            make visualization easier in tecplot.
+        """
+
+        coords = self.update(name, config)
+        fileName = fileName + "_%s.dat" % name
+        f = openTecplot(fileName, 3)
+        writeTecplot1D(f, name, coords, solutionTime)
+        closeTecplot(f)
 
     def writePlot3d(self, fileName):
         pass
@@ -245,10 +513,55 @@ class DVGeometry(object):
     def writeSTL(self, fileName):
         pass
 
-    def updatePyGeo(self, geo, outputType, fileName, nRefU=0, nRefV=0):
-        pass
-
     #Internal Functions
 
-    def _finalize(self):
+    def finalize(self):
         pass
+
+    def getNDV(self):
+        """
+        Return the actual number of design variables, global + local
+        """
+        return self.getNDVGlobal() + self.getNDVLocal()
+
+    def getNDVGlobal(self):
+        """
+        Get total number of global variables
+        """
+        nDV = 0
+        for key in self.DV_listGlobal:
+            nDV += self.DV_listGlobal[key].nVal
+
+        return nDV
+
+    def getNDVLocal(self):
+        """
+        Get total number of local variables
+        """
+        nDV = 0
+        for key in self.DV_listLocal:
+            nDV += self.DV_listLocal[key].nVal
+
+        return nDV
+
+    def getDVOffsets(self):
+        """
+        return the global and local DV offsets for this FFD
+        """
+
+        # figure out the split between local and global Variables
+        # All global vars at all levels come first
+        # then spanwise, then section local vars and then local vars.
+        # Parent Vars come before child Vars
+
+        # get the global and local DV numbers on the parents if we don't have them
+        if (self.nDV_T is None or self.nDVG_T is None or self.nDVL_T is None):
+            self.nDV_T = self.getNDV()
+            self.nDVG_T = self.getNDVGlobal()
+            self.nDVL_T = self.getNDVLocal()
+            self.nDVG_count = 0
+            self.nDVL_count = self.nDVG_T
+
+        return self.nDVG_count, self.nDVL_count
+
+
