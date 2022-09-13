@@ -6,7 +6,7 @@ class DVGeometryCST(DVGeometry):
     #Baseclass for manipulating CST geometry
 
     def __init__(self, filepath, name=None):
-        super().__init__(name)
+        super().__init__(filepath, name)
 
         self.param = CSTMultiParam(filepath)
         self.origParamCoef = self.param.coef.copy()
@@ -56,6 +56,54 @@ class DVGeometryCST(DVGeometry):
         self.param.calcdPtdCoef(ptName)
         self.updated[ptName] = False
 
+    def addLocalDV(self, dvName, value=None, lower=None, upper=None, scale=1.0, config=None):
+        """
+        Add one or more local design variables ot the DVGeometry
+        object. Local variables are used for small shape modifications.
+
+        Parameters
+        ----------
+        dvName : str
+            A unique name to be given to this design variable group
+
+        value : float
+            Initial value for the DV, None will automatically calculate
+
+        lower : float
+            The lower bound for the variable(s). This will be applied to
+            all shape variables
+
+        upper : float
+            The upper bound for the variable(s). This will be applied to
+            all shape variables
+
+        scale : float
+            The scaling of the variables. A good approximate scale to
+            start with is approximately 1.0/(upper-lower). This gives
+            variables that are of order ~1.0.
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+
+        Returns
+        -------
+        N : int
+            The number of design variables added.
+
+        Example
+        --------
+        >>> # 
+        """
+
+        #TODO
+        #Determine how to set local design variables
+        #self.DV_listLocal[dvName] = CSTLocalDesignVar()
+
+        return self.DV_listLocal[dvName].nVal
+    
     def update(self, ptSetName, config=None):
         """
         This is the main routine for returning coordinates that have
@@ -120,36 +168,10 @@ class DVGeometryCST(DVGeometry):
         # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
         if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
             dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocoo()
-            # We have a slight problem...dPtdCoef only has the shape
-            # functions, so it size Npt x Coef. We need a matrix of
-            # size 3*Npt x 3*nCoef, where each non-zero entry of
-            # dPtdCoef is replaced by value * 3x3 Identity matrix.
-
-            # Extract IJV Triplet from dPtdCoef
-            row = dPtdCoef.row
-            col = dPtdCoef.col
-            data = dPtdCoef.data
-
-            new_row = np.zeros(3 * len(row), "int")
-            new_col = np.zeros(3 * len(row), "int")
-            new_data = np.zeros(3 * len(row))
-
-            # Loop over each entry and expand:
-            for j in range(3):
-                new_data[j::3] = data
-                new_row[j::3] = row * 3 + j
-                new_col[j::3] = col * 3 + j
-
-            # Size of New Matrix:
-            Nrow = dPtdCoef.shape[0] * 3
-            Ncol = dPtdCoef.shape[1] * 3
-
-            # Create new matrix in coo-dinate format and convert to csr
-            new_dPtdCoef = sparse.coo_matrix((new_data, (new_row, new_col)), shape=(Nrow, Ncol)).tocsr()
 
             # Do Sparse Mat-Mat multiplication and resort indices
             if J_temp is not None:
-                self.JT[ptSetName] = (J_temp.T * new_dPtdCoef.T).tocsr()
+                self.JT[ptSetName] = (J_temp.T * dPtdCoef.T).tocsr()
                 self.JT[ptSetName].sort_indices()
         else:
             self.JT[ptSetName] = None
@@ -161,3 +183,39 @@ class DVGeometryCST(DVGeometry):
             return
         self.finalized = True
         self.nPtAttachFull = len(self.param.coef)
+
+    def localDVJacobian(self, config=None):
+        """
+        Return the derivative of the coefficients wrt the local design
+        variables
+        """
+
+        # This is relatively straight forward, since the matrix is
+        # entirely one's or zeros
+        nDV = self.getNDVLocal()
+        self.getDVOffsets()
+
+        if nDV != 0:
+            Jacobian = sparse.lil_matrix((self.nPtAttachFull * 3, self.nDV_T))
+
+            iDVLocal = self.nDVL_count
+            for key in self.DV_listLocal:
+                if (
+                    self.DV_listLocal[key].config is None
+                    or config is None
+                    or any(c0 == config for c0 in self.DV_listLocal[key].config)
+                ):
+
+                    self.DV_listLocal[key](self.param.coef, config)
+                    nVal = self.DV_listLocal[key].nVal
+                    for j in range(nVal):
+                        pt_dv = self.DV_listLocal[key].coefList[j]
+                        irow = pt_dv[0] * 3 + pt_dv[1]
+                        Jacobian[irow, iDVLocal] = 1.0
+                        iDVLocal += 1
+
+                else:
+                    iDVLocal += self.DV_listLocal[key].nVal
+        else:
+            Jacobian = None
+        return Jacobian

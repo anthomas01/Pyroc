@@ -52,6 +52,98 @@ class DVGeometry(object):
         """
         pass
 
+    def addGlobalDV(self, dvName, value, func, lower=None, upper=None, scale=1.0, config=None):
+        """
+        Add a global design variable to the DVGeometry object
+
+        Parameters
+        ----------
+        dvName : str
+            A unique name to be given to this design variable group
+
+        value : float, or iterable list of floats
+            The starting value(s) for the design variable. This
+            parameter may be a single variable or a numpy array
+            (or list) if the function requires more than one
+            variable. The number of variables is determined by the
+            rank (and if rank ==1, the length) of this parameter.
+
+        lower : float, or iterable list of floats
+            The lower bound(s) for the variable(s). A single variable
+            is permissable even if an array is given for value. However,
+            if an array is given for 'lower', it must be the same length
+            as 'value'
+
+        func : python function
+            The python function handle that will be used to apply the
+            design variable
+
+        upper : float, or iterable list of floats
+            The upper bound(s) for the variable(s). Same restrictions as
+            'lower'
+
+        scale : float, or iterable list of floats
+            The scaling of the variables. A good approximate scale to
+            start with is approximately 1.0/(upper-lower). This gives
+            variables that are of order ~1.0.
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+        """
+        # if the parent DVGeometry object has a name attribute, prepend it
+        if self.name is not None:
+            dvName = self.name + "_" + dvName
+
+        if isinstance(config, str):
+            config = [config]
+        self.DV_listGlobal[dvName] = GlobalDesignVar(dvName, value, lower, upper, scale, func, config)
+
+    def addLocalDV(self, dvName, value=None, lower=None, upper=None, scale=1.0, config=None):
+        """
+        Add one or more local design variables ot the DVGeometry
+        object. Local variables are used for small shape modifications.
+
+        Parameters
+        ----------
+        dvName : str
+            A unique name to be given to this design variable group
+
+        value : float
+            Initial value for the DV, None will automatically calculate
+
+        lower : float
+            The lower bound for the variable(s). This will be applied to
+            all shape variables
+
+        upper : float
+            The upper bound for the variable(s). This will be applied to
+            all shape variables
+
+        scale : float
+            The scaling of the variables. A good approximate scale to
+            start with is approximately 1.0/(upper-lower). This gives
+            variables that are of order ~1.0.
+
+        config : str or list
+            Define what configurations this design variable will be applied to
+            Use a string for a single configuration or a list for multiple
+            configurations. The default value of None implies that the design
+            variable applies to *ALL* configurations.
+
+        Returns
+        -------
+        N : int
+            The number of design variables added.
+
+        Example
+        --------
+        >>> # 
+        """
+        pass
+
     def setDesignVars(self, dvDict):
         """Set design variables from dict"""
 
@@ -353,7 +445,7 @@ class DVGeometry(object):
 
         Parameters
         ----------
-        dIdpt : array of size (Npt, 3) or (N, Npt, 3)
+        vec : array of size (Npt, 3) or (N, Npt, 3)
 
             This is the total derivative of the objective or function
             of interest with respect to the coordinates in
@@ -402,11 +494,6 @@ class DVGeometry(object):
         """
         return J_temp for a given config
         """
-        # These routines are not recursive. They compute the derivatives at this level and
-        # pass information down one level for the next pass call from the routine above
-
-        # This is going to be DENSE in general
-        J_attach = self.attachedPtJacobian(config=config)
 
         # This is the sparse jacobian for the local DVs that affect
         # Control points directly.
@@ -414,15 +501,8 @@ class DVGeometry(object):
 
         J_temp = None
 
-        # add them together
-        if J_attach is not None:
-            J_temp = sparse.lil_matrix(J_attach)
-
         if J_local is not None:
-            if J_temp is None:
-                J_temp = sparse.lil_matrix(J_local)
-            else:
-                J_temp += J_local
+            J_temp = sparse.lil_matrix(J_local)
 
         return J_temp
 
@@ -499,6 +579,9 @@ class DVGeometry(object):
         SolutionTime : float
             Solution time to write to the file. This could be a fictitious time to
             make visualization easier in tecplot.
+
+        Config : str or list
+            Config for which to update coordinates
         """
 
         coords = self.update(name, config)
@@ -513,7 +596,7 @@ class DVGeometry(object):
     def writeSTL(self, fileName):
         pass
 
-    #Internal Functions
+    #Helper Functions
 
     def finalize(self):
         pass
@@ -564,4 +647,70 @@ class DVGeometry(object):
 
         return self.nDVG_count, self.nDVL_count
 
+    def computeTotalJacobianFD(self, ptSetName, config=None):
+        """This function takes the total derivative of an objective,
+        I, with respect the points controlled on this processor using FD.
+        We take the transpose prodducts and mpi_allreduce them to get the
+        resulting value on each processor. Note that this function is slow
+        and should eventually be replaced by an analytic version.
+        """
 
+        self.finalize()
+        self.curPtSet = ptSetName
+
+        if self.JT[ptSetName] is not None:
+            return
+
+        coords0 = self.update(ptSetName, config=config).flatten()
+
+        if self.nPts[ptSetName] is None:
+            self.nPts[ptSetName] = len(coords0.flatten())
+
+        DVGlobalCount, DVLocalCount = self.getDVOffsets()
+
+        h = 1e-6
+
+        self.JT[ptSetName] = np.zeros([self.nDV_T, self.nPts[ptSetName]])
+
+        for key in self.DV_listGlobal:
+            for j in range(self.DV_listGlobal[key].nVal):
+
+                refVal = self.DV_listGlobal[key].value[j]
+
+                self.DV_listGlobal[key].value[j] += h
+
+                coordsph = self.update(ptSetName, config=config).flatten()
+
+                deriv = (coordsph - coords0) / h
+                self.JT[ptSetName][DVGlobalCount, :] = deriv
+
+                DVGlobalCount += 1
+                self.DV_listGlobal[key].value[j] = refVal
+
+        for key in self.DV_listLocal:
+            for j in range(self.DV_listLocal[key].nVal):
+
+                refVal = self.DV_listLocal[key].value[j]
+
+                self.DV_listLocal[key].value[j] += h
+                coordsph = self.update(ptSetName, config=config).flatten()
+
+                deriv = (coordsph - coords0) / h
+                self.JT[ptSetName][DVLocalCount, :] = deriv
+
+                DVLocalCount += 1
+                self.DV_listLocal[key].value[j] = refVal
+
+    def printDesignVariables(self):
+        """
+        Print a formatted list of design variables to the screen
+        """
+        for dg in self.DV_listGlobal:
+            print("%s" % (self.DV_listGlobal[dg].name))
+            for i in range(self.DV_listGlobal[dg].nVal):
+                print("%20.15f" % (self.DV_listGlobal[dg].value[i]))
+
+        for dl in self.DV_listLocal:
+            print("%s" % (self.DV_listLocal[dl].name))
+            for i in range(self.DV_listLocal[dl].nVal):
+                print("%20.15f" % (self.DV_listLocal[dl].value[i]))
