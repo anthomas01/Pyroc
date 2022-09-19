@@ -76,7 +76,7 @@ class CSTMultiParam(object):
 class EmbeddedSurface(object):
     #Class for managing multiple CST surfaces
 
-    def __init__(self, coordinates, embeddedParams):
+    def __init__(self, coordinates, embeddedParams, fit=True):
         #Read in coords, ndarray (N,3)
         self.coordinates = coordinates
         self.embeddedParams = embeddedParams
@@ -84,16 +84,29 @@ class EmbeddedSurface(object):
         self.N = len(coordinates)
 
         #Determine which embedded parameterization object each coordinate belongs to
-        self.paramMap = self.mapCoords2Params() #ndarray (N,1)
-        self.parameterization = np.array() # psiEtaZeta
+        self.paramMap = self.mapCoords2Params() #ndarray (N,1), ndarray (N,3)
+
+        #Group coordinates by parameterization and apply fit
+        self.parameterization = self.fitParams()
     
     #TODO Make this more efficient
     def mapCoords2Params(self):
         #Returns array that is the same size as the coordinate list
         #Each indice contains the name of an externally stored EmbeddedParameterization object
-        paramMap = np.zeros((self.N, 1), dtype=str)
+
+        paramMap = np.zeros((self.N,1), dtype=str)
         for _ in range(self.N):
-            pass
+            #Brute force least square distance?
+            closest = 1e8
+            for paramName in self.embeddedParams:
+                param = self.embeddedParams[paramName]
+                psiEtaZeta = param.calcParameterization(self.coordinates[_])
+                computedXYZ = param.calcCoords(psiEtaZeta)
+
+                d2 = np.sum(np.power(self.coordinates[_]-computedXYZ,2))
+                if paramMap[_]=='' or d2<closest:
+                    closest = d2
+                    paramMap[_] = paramName
 
         return paramMap
 
@@ -106,6 +119,20 @@ class EmbeddedSurface(object):
             psiEtaZeta = self.parameterization[_]
             coordinates[_] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
+
+    def fitParams(self, performFit=True):
+        #Group coordinates by parameterization
+        paramCoords = {}
+        uniqueParams = np.unique(self.paramMap)
+        for paramName in uniqueParams:
+            paramCoords[paramName] = []
+        for _ in range(self.N):
+            paramCoords[self.paramMap[_]].append(self.coordinates[_])
+
+        #Perform coefficient fit if performFit
+        if performFit:
+            for paramName in uniqueParams:
+                param = self.embeddedParams[paramName]
 
 
 
@@ -140,8 +167,26 @@ class EmbeddedParameterization(object):
         self.applyConstraints()
         self.param.updateCoeffs(self.coeffs)
 
+    def fitCoefficients(self, coordinates):
+        self.updateCoeffs()
+        self.applyMasks()
+        self.param.fit3d(coordinates)
+        self.removeMasks()
+
+    def calcParameterization(self, coordinates):
+        return self.param.coords2PsiEtaZeta(coordinates)
+
     def calcCoords(self, psiEtaZeta):
         return self.param.calcCoords(psiEtaZeta)
 
-    def calcdPtdCoef(self, XYZ):
-        return self.param.calcJacobian(XYZ)
+    def calcdPtdCoef(self, coordinates):
+        return self.param.calcJacobian(coordinates)
+
+    def applyMasks(self):
+        for dependantCoeffName in self.dependantCoeffs:
+            dependantCoeff = self.dependantCoeffs[dependantCoeffName]
+            for _ in dependantCoeff['DVList']:
+                self.param.masks[_] = 1
+
+    def removeMasks(self):
+        self.param.masks = [0 for _ in range(len(self.param.masks))]

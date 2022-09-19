@@ -455,12 +455,12 @@ class CST3DParam(object):
         return self.calcJacobian(self.surface)
 
     #Perform a fit of the coefficients
-    def fit3d(self):
+    def fit3d(self, coords):
         def surface(xyVals, *coeffs):
             self.updateCoeffs(coeffs)
             return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
         #TODO Fix warning for cov params being inf in certain conditions
-        coeffs,cov = scp.curve_fit(surface,self.surface[:,(0,1)],self.surface[:,2],self.getCoeffs())
+        coeffs,cov = scp.curve_fit(surface,coords[:,(0,1)],coords[:,2],self.getCoeffs())
         self.updateCoeffs(coeffs)
         self.updateZeta()
         return 0
