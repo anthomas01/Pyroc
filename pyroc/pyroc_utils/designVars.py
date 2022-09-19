@@ -32,17 +32,18 @@ class GlobalDesignVar():
             return self.function(np.real(self.value), geo)
 
 class CSTLocalDesignVar():
-    def __init__(self, name, value, lower=None, upper=None, scale=1.0, mask=None, config=None):
+    def __init__(self, name, values, lower=None, upper=None, scale=1.0, mask=None, config=None):
         self.name = name
-        self.value = np.copy(value)
+        self.values = np.copy(values)
         self.lower = lower
         self.upper = upper
         self.scale = scale
         self.mask = mask
         self.config = config
-        self.nVal = len(value)
+        self.nVal = len(values)
 
-    def __call__(self, config):
+    def __call__(self, coeffs, config):
         #Apply value when called
         if (self.config is None or config is None or any(c0 == config for c0 in self.config)):
-            return self.value
+            for _ in range(self.nVal):
+                coeffs[_] = self.values[_]

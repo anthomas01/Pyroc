@@ -5,10 +5,10 @@ from scipy import sparse
 class DVGeometryCST(DVGeometry):
     #Baseclass for manipulating CST geometry
 
-    def __init__(self, filepath, name=None):
-        super().__init__(filepath, name)
+    def __init__(self, CSTMultiParam, name=None):
+        super().__init__(filepath=None, name=name)
 
-        self.param = CSTMultiParam(filepath)
+        self.param = CSTMultiParam
         self.origParamCoef = self.param.coef.copy()
 
     def addPointSet(self, points, ptName, origConfig=True):
@@ -127,10 +127,6 @@ class DVGeometryCST(DVGeometry):
         # We've postponed things as long as we can...do the finalization.
         self.finalize()
 
-        # Set all coef Values back to initial values
-        #self.param.coef = self.origParamCoef.copy()
-        #self._setInitialValues()
-
         # Apply Global DVs
         for key in self.DV_listGlobal:
             self.DV_listGlobal[key](self, config)
@@ -182,7 +178,7 @@ class DVGeometryCST(DVGeometry):
         if self.finalized:
             return
         self.finalized = True
-        self.nPtAttachFull = len(self.param.coef)
+        self.nCoefFull = len(self.param.coef)
 
     def localDVJacobian(self, config=None):
         """
@@ -196,7 +192,7 @@ class DVGeometryCST(DVGeometry):
         self.getDVOffsets()
 
         if nDV != 0:
-            Jacobian = sparse.lil_matrix((self.nPtAttachFull * 3, self.nDV_T))
+            Jacobian = sparse.lil_matrix((self.nCoefFull * 3, self.nDV_T))
 
             iDVLocal = self.nDVL_count
             for key in self.DV_listLocal:
