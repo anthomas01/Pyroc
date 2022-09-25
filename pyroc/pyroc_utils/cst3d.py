@@ -152,7 +152,12 @@ class CST3DParam(object):
         self.shapeOffsets = shapeOffsets.copy()
 
         #Variable Masks
-        self.masks = [0 for _ in range(len(self.getCoeffs()))] if len(masks)==0 else masks.copy()
+        self.masks = []
+        for _ in range(len(self.getCoeffs())):
+            if _ in masks:
+                masks.append(1)
+            else:
+                masks.append(0)
 
         #Set initial parameterization values from original coordinates
         self.psiEtaZeta = self.coords2PsiEtaZeta(self.origSurface)
@@ -285,8 +290,8 @@ class CST3DParam(object):
         transSurface = self.transformSurface(surface)
         psiVals = self.calcXYZ2Psi(transSurface)
         etaVals = self.calcXYZ2Eta(transSurface)
-        psiEtaZeta =  np.vstack([psiVals, etaVals, np.zeros_like(psiVals)]).T
-        psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
+        zetaVals = self.calcXYZ2Zeta(transSurface)
+        psiEtaZeta =  np.vstack([psiVals, etaVals, zetaVals]).T
         return psiEtaZeta
 
     #Set psi/eta values and update zeta
@@ -460,7 +465,7 @@ class CST3DParam(object):
             self.updateCoeffs(coeffs)
             return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
         #TODO Fix warning for cov params being inf in certain conditions
-        coeffs,cov = scp.curve_fit(surface,coords[:,(0,1)],coords[:,2],self.getCoeffs())
+        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],self.getCoeffs())
         self.updateCoeffs(coeffs)
         self.updateZeta()
         return 0

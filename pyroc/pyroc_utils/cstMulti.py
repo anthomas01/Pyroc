@@ -1,8 +1,9 @@
 from .cst3d import *
 from collections import OrderedDict
 from scipy import sparse
+from scipy.spatial import Delaunay
+import matplotlib.pyplot as plt
 import numpy as np
-import os
 
 class CSTMultiParam(object):
     #Class for managing multiple CST geometry objects
@@ -12,10 +13,12 @@ class CSTMultiParam(object):
         self.coef = None
         self.embeddedSurfaces = {}
         self.embeddedParams = {}
+        self.fit = True
 
-    def attachPoints(self, coordinates, ptSetName):
+    def attachPoints(self, coordinates, ptSetName, embeddedParams=None):
         #Project points to surface/CST geom object if some were passed in
-        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates)
+        embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
+        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, self.fit)
 
     def getAttachedPoints(self, ptSetName):
         #Refresh attached points
@@ -25,7 +28,7 @@ class CSTMultiParam(object):
 
     def attachCSTParam(self, CSTParam, paramName, embeddedParams=None):
         embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
-        self.embeddedParams[paramName] = EmbeddedParameterization(CSTParam, embeddedParams)
+        embeddedParams[paramName] = EmbeddedParameterization(CSTParam)
 
     def updateCoeffs(self):
         "Update CST coefficients"
@@ -71,6 +74,20 @@ class CSTMultiParam(object):
         #Finally, store variable as sparse matrix
         self.embeddedSurfaces[ptSetName].dPtdCoef = sparse.csr_matrix(dPtdCoef)
 
+    def plotMulti(self, ax):
+        psiVals = np.linspace(0, 1, 25)
+        etaVals = np.linspace(0, 1, 10)
+        psi, eta = np.meshgrid(psiVals, etaVals)
+        psi, eta = psi.flatten(), eta.flatten()
+        psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
+        tri = Delaunay(np.array([psi, eta]).T)
+
+        for paramName in self.embeddedParams:
+            param = self.embeddedParams[paramName]
+            param.param.setPsiEtaZeta(psiEtaZeta.copy())
+            coords = param.param.updateCoords()
+            ax.plot_trisurf(coords[:,0], coords[:,1], coords[:,2], triangles=tri.simplices.copy())
+
 
 
 class EmbeddedSurface(object):
@@ -83,18 +100,19 @@ class EmbeddedSurface(object):
         self.dPtdCoef = None
         self.N = len(coordinates)
 
-        #Determine which embedded parameterization object each coordinate belongs to
-        self.paramMap = self.mapCoords2Params() #ndarray (N,1), ndarray (N,3)
-
-        #Group coordinates by parameterization and apply fit
-        self.parameterization = self.fitParams()
+        for _ in range(2):
+            #Determine which embedded parameterization object each coordinate belongs to
+            self.paramMap = self.mapCoords2Params() #list
+    
+            #Group coordinates by parameterization and apply fit
+            self.parameterization = self.fitParams()
     
     #TODO Make this more efficient
     def mapCoords2Params(self):
         #Returns array that is the same size as the coordinate list
-        #Each indice contains the name of an externally stored EmbeddedParameterization object
+        #Each indice contains the name of an EmbeddedParameterization object
+        paramMap = ['' for _ in range(self.N)]
 
-        paramMap = np.zeros((self.N,1), dtype=str)
         for _ in range(self.N):
             #Brute force least square distance?
             closest = 1e8
@@ -104,10 +122,12 @@ class EmbeddedSurface(object):
                 computedXYZ = param.calcCoords(psiEtaZeta)
 
                 d2 = np.sum(np.power(self.coordinates[_]-computedXYZ,2))
-                if paramMap[_]=='' or d2<closest:
-                    closest = d2
+                if d2==closest and paramMap[_-1]==paramName:
                     paramMap[_] = paramName
-
+                elif d2<closest:
+                    paramMap[_] = paramName
+                    closest = d2
+                    
         return paramMap
 
     #TODO Make this more efficient
@@ -117,7 +137,7 @@ class EmbeddedSurface(object):
             paramName = self.paramMap[_]
             param = self.embeddedParams[paramName]
             psiEtaZeta = self.parameterization[_]
-            coordinates[_] = param.calcCoords(psiEtaZeta)
+            coordinates[_,:] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
 
     def fitParams(self, performFit=True):
@@ -133,6 +153,15 @@ class EmbeddedSurface(object):
         if performFit:
             for paramName in uniqueParams:
                 param = self.embeddedParams[paramName]
+                param.fitCoefficients(paramCoords[paramName])
+
+        #Update parameterization
+        parameterization = np.zeros_like(self.coordinates)
+        for _ in range(self.N):
+            param = self.embeddedParams[self.paramMap[_]]
+            parameterization[_,:] = param.calcParameterization(self.coordinates[_,:])
+
+        return parameterization
 
 
 
@@ -141,8 +170,9 @@ class EmbeddedParameterization(object):
 
     def __init__(self, param):
         self.param = param
-        self.coeffs = param.getCoeffs()
+        self.coeffs = self.param.getCoeffs()
         self.dependantCoeffs = OrderedDict()
+        self.masks = self.param.masks
 
     def addConstraint(self, name, IVEmbeddedParam, IVList, DVList):
         # IV/DV's are lists of indices for coefficients, check cst3d.py for positions
@@ -170,17 +200,17 @@ class EmbeddedParameterization(object):
     def fitCoefficients(self, coordinates):
         self.updateCoeffs()
         self.applyMasks()
-        self.param.fit3d(coordinates)
+        self.param.fit3d(np.atleast_2d(coordinates))
         self.removeMasks()
 
     def calcParameterization(self, coordinates):
-        return self.param.coords2PsiEtaZeta(coordinates)
+        return self.param.coords2PsiEtaZeta(np.atleast_2d(coordinates))
 
     def calcCoords(self, psiEtaZeta):
-        return self.param.calcCoords(psiEtaZeta)
+        return self.param.calcCoords(np.atleast_2d(psiEtaZeta))
 
     def calcdPtdCoef(self, coordinates):
-        return self.param.calcJacobian(coordinates)
+        return self.param.calcJacobian(np.atleast_2d(coordinates))
 
     def applyMasks(self):
         for dependantCoeffName in self.dependantCoeffs:
@@ -189,4 +219,5 @@ class EmbeddedParameterization(object):
                 self.param.masks[_] = 1
 
     def removeMasks(self):
-        self.param.masks = [0 for _ in range(len(self.param.masks))]
+        #Reapply original masks
+        self.param.masks = self.masks

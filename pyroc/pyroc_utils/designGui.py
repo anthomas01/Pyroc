@@ -337,7 +337,7 @@ class PyrocDesign(object):
         self.canvas.draw()
 
 class GeoEx():
-    #Experimental class for coupling cst surfaces
+    #Experimental class for basic coupling of cst surfaces
     def __init__(self, surfaces=[], coeffPairs=None):
         self.surfaces = surfaces
         self.nSurf = len(self.surfaces)
