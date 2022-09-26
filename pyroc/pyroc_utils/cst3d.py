@@ -155,9 +155,9 @@ class CST3DParam(object):
         self.masks = []
         for _ in range(len(self.getCoeffs())):
             if _ in masks:
-                masks.append(1)
+                self.masks.append(1)
             else:
-                masks.append(0)
+                self.masks.append(0)
 
         #Set initial parameterization values from original coordinates
         self.psiEtaZeta = self.coords2PsiEtaZeta(self.origSurface)
