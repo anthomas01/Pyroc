@@ -11,8 +11,8 @@ class CSTMultiParam(object):
     def __init__(self):
 
         self.coef = None
-        self.embeddedSurfaces = {}
-        self.embeddedParams = {}
+        self.embeddedSurfaces = OrderedDict()
+        self.embeddedParams = OrderedDict()
         self.fit = True
 
     def attachPoints(self, coordinates, ptSetName, embeddedParams=None):
@@ -29,6 +29,7 @@ class CSTMultiParam(object):
     def attachCSTParam(self, CSTParam, paramName, embeddedParams=None):
         embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
         embeddedParams[paramName] = EmbeddedParameterization(CSTParam)
+        self.setCoeffs()
 
     def updateCoeffs(self):
         "Update CST coefficients"
@@ -194,6 +195,7 @@ class EmbeddedParameterization(object):
                 self.coeffs[j] = dependantCoeff['IVParam'].coeffs[i]
 
     def updateCoeffs(self):
+        self.coeffs = self.param.getCoeffs()
         self.applyConstraints()
         self.param.updateCoeffs(self.coeffs)
 

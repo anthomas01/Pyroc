@@ -28,6 +28,8 @@ class DVGeometry(object):
         self.nDVG_T = None
         self.nDVL_T = None
 
+        self.useComposite = False
+
     def addPointSet(self, points, ptName, origConfig=True):
         """
         Add a set of coordinates to DVGeometry
@@ -99,7 +101,7 @@ class DVGeometry(object):
 
         if isinstance(config, str):
             config = [config]
-        self.DV_listGlobal[dvName] = GlobalDesignVar(dvName, value, lower, upper, scale, func, config)
+        self.DV_listGlobal[dvName] = GlobalDesignVar(dvName, value, func, lower, upper, scale, config)
 
     def addLocalDV(self, dvName, value=None, lower=None, upper=None, scale=1.0, config=None):
         """
@@ -307,7 +309,7 @@ class DVGeometry(object):
 
         return dIdx
 
-    def getVarNames(self):
+    def getVarNames(self, pyOptSparse=False):
         """
         Return a list of the design variable names. This is typically
         used when specifying a wrt= argument for pyOptSparse.
@@ -319,8 +321,12 @@ class DVGeometry(object):
         --------
         optProb.addCon(.....wrt=DVGeo.getVarNames())
         """
-        names = list(self.DV_listGlobal.keys())
-        names.extend(list(self.DV_listLocal.keys()))
+        if not pyOptSparse or not self.useComposite:
+            names = list(self.DV_listGlobal.keys())
+            names.extend(list(self.DV_listLocal.keys()))
+        else:
+            names = [self.DVComposite.name]
+
         return names
 
     def totalSensitivity(self, dIdpt, ptSetName, comm=None, config=None):
@@ -646,6 +652,9 @@ class DVGeometry(object):
             self.nDVL_count = self.nDVG_T
 
         return self.nDVG_count, self.nDVL_count
+
+    def localDVJacobian(self, config=None):
+        pass
 
     def computeTotalJacobianFD(self, ptSetName, config=None):
         """This function takes the total derivative of an objective,

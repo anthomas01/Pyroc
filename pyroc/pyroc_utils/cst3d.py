@@ -153,8 +153,9 @@ class CST3DParam(object):
 
         #Variable Masks
         self.masks = []
-        for _ in range(len(self.getCoeffs())):
-            if _ in masks:
+        nCoeffs = len(self.getCoeffs())
+        for _ in range(nCoeffs):
+            if _ in masks or _-nCoeffs:
                 self.masks.append(1)
             else:
                 self.masks.append(0)

@@ -11,7 +11,7 @@ class DVGeometryCST(DVGeometry):
         self.param = CSTMultiParam
         self.origParamCoef = self.param.coef.copy()
 
-    def addPointSet(self, points, ptName, origConfig=True):
+    def addPointSet(self, points, ptName, origConfig=True, **kwargs):
         """
         Add a set of coordinates to DVGeometry
 
@@ -34,6 +34,9 @@ class DVGeometryCST(DVGeometry):
             exactly what they are doing.
         """
 
+        # compNames is only needed for DVGeometryMulti, so remove it if passed
+        kwargs.pop("compNames", None)
+
         self.ptSetNames.append(ptName)
         self.zeroJacobians([ptName])
         self.nPts[ptName] = None
@@ -42,21 +45,25 @@ class DVGeometryCST(DVGeometry):
         self.points[ptName] = points
 
         # TODO Ensure we project into the undeformed geometry
-        if origConfig:
-            tmpCoef = self.param.coef.copy()
-            self.param.coef = self.origParamCoef
-            self.param.updateCoeffs()
+        #if origConfig:
+        #    tmpCoef = self.param.coef.copy()
+        #    self.param.coef = self.origParamCoef
+        #    self.param.updateCoeffs()
 
         self.param.attachPoints(self.points[ptName], ptName)
 
-        if origConfig:
-            self.param.coef = tmpCoef
-            self.param.updateCoeffs()
+        #if origConfig:
+        #    self.param.coef = tmpCoef
+        #    self.param.updateCoeffs()
+
+        #TODO Update design variables with fit coefficients
+        for key in self.DV_listLocal:
+            self.DV_listLocal[key].apply(self.param.coef)
 
         self.param.calcdPtdCoef(ptName)
         self.updated[ptName] = False
 
-    def addLocalDV(self, dvName, value=None, lower=None, upper=None, scale=1.0, config=None):
+    def addLocalDV(self, dvName, coefDict, lower=None, upper=None, scale=1.0, config=None):
         """
         Add one or more local design variables ot the DVGeometry
         object. Local variables are used for small shape modifications.
@@ -65,9 +72,6 @@ class DVGeometryCST(DVGeometry):
         ----------
         dvName : str
             A unique name to be given to this design variable group
-
-        value : float
-            Initial value for the DV, None will automatically calculate
 
         lower : float
             The lower bound for the variable(s). This will be applied to
@@ -97,10 +101,27 @@ class DVGeometryCST(DVGeometry):
         --------
         >>> # 
         """
+        if self.name is not None:
+            dvName = self.name + "_" + dvName
 
-        #TODO
-        #Determine how to set local design variables
-        #self.DV_listLocal[dvName] = CSTLocalDesignVar()
+        if isinstance(config, str):
+            config = [config]
+
+        nVal = sum([len(coefDict[_]) for _ in coefDict])
+        values = np.zeros(nVal)
+        ind = np.zeros((nVal, 2), dtype=int)
+        paramNames = list(self.param.embeddedParams.keys())
+
+        i=0
+        for dvParamName in coefDict:
+            indices = coefDict[dvParamName]
+            for index in indices:
+                ind[i,0] = paramNames.index(dvParamName)
+                ind[i,1] = index
+                values[i] = self.param.embeddedParams[dvParamName].coeffs[index]
+                i+=1
+
+        self.DV_listLocal[dvName] = CSTLocalDesignVar(dvName, values, ind, lower, upper, scale, config)
 
         return self.DV_listLocal[dvName].nVal
     
