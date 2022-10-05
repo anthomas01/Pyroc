@@ -1,5 +1,5 @@
 from ...pyroc_utils import *
-from pyspline.utils import openTecplot, closeTecplot, writeTecplot1D, writeTecplot3D
+from pyspline import *
 from collections import OrderedDict
 from mpi4py import MPI
 from scipy import sparse
