@@ -54,6 +54,23 @@ class DVGeometry(object):
         """
         pass
 
+    def pointSetUpToDate(self, ptSetName):
+        """
+        This is used externally to query if the object needs to update its pointset or not.
+        Essentially what happens is when update() is called with a point set, the self.updated dict entry for pointSet is flagged as true.
+        Here we just return that flag. When design variables are set, we then reset all the flags to False since,
+        when DVs are set, nothing (in general) will be up to date anymore.
+
+        Parameters
+        ----------
+        ptSetName : str
+            The name of the pointset to check.
+        """
+        if ptSetName in self.updated:
+            return self.updated[ptSetName]
+        else:
+            return True
+    
     def addGlobalDV(self, dvName, value, func, lower=None, upper=None, scale=1.0, config=None):
         """
         Add a global design variable to the DVGeometry object

@@ -155,7 +155,7 @@ class CST3DParam(object):
         self.masks = []
         nCoeffs = len(self.getCoeffs())
         for _ in range(nCoeffs):
-            if _ in masks or _-nCoeffs:
+            if _ in masks or _-nCoeffs in masks:
                 self.masks.append(1)
             else:
                 self.masks.append(0)
@@ -463,10 +463,10 @@ class CST3DParam(object):
     #Perform a fit of the coefficients
     def fit3d(self, coords):
         def surface(xyVals, *coeffs):
-            self.updateCoeffs(coeffs)
+            self.updateCoeffs(list(coeffs))
             return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
         #TODO Fix warning for cov params being inf in certain conditions
-        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],self.getCoeffs())
+        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],np.atleast_1d(self.getCoeffs()))
         self.updateCoeffs(coeffs)
         self.updateZeta()
         return 0

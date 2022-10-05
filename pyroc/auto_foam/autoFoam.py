@@ -690,15 +690,18 @@ class AutoFOAM(object):
         file = open(filePath, 'w')
         self.writeOpenFoamHeader(file, 'dictionary', constDir, fileName)
 
-        file.write('simulationType RAS;\n'
-                   'RAS \n'
-                   '{ \n'
-                   '    RASModel             %s;\n'
-                   '    turbulence           on;\n'
-                   '    printCoeffs          off;\n'
-                   '    nuTildaMin           1e-16;\n'
-                   '    Prt                  %f;\n'
-                   '}' % (model, turbulentPrandtl))
+        turbulenceProperties = ('simulationType RAS;\n'
+                               'RAS \n'
+                               '{ \n'
+                               '    RASModel             %s;\n'
+                               '    turbulence           on;\n'
+                               '    printCoeffs          off;\n' % (model))
+        if self.solver not in ['DASimpleFOAM']:
+            turbulenceProperties += ('    nuTildaMin           1e-16;\n'
+                                     '    Prt                  %f;\n'
+                                     '}' % turbulentPrandtl)
+
+        file.write(turbulenceProperties)
         file.close()
 
     def writeBC(self, varName):

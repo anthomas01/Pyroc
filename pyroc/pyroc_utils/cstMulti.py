@@ -2,8 +2,8 @@ from .cst3d import *
 from collections import OrderedDict
 from scipy import sparse
 from scipy.spatial import Delaunay
-import matplotlib.pyplot as plt
 import numpy as np
+import os
 
 class CSTMultiParam(object):
     #Class for managing multiple CST geometry objects
@@ -13,12 +13,13 @@ class CSTMultiParam(object):
         self.coef = None
         self.embeddedSurfaces = OrderedDict()
         self.embeddedParams = OrderedDict()
-        self.fit = True
+        self.fit = False
 
     def attachPoints(self, coordinates, ptSetName, embeddedParams=None):
         #Project points to surface/CST geom object if some were passed in
         embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
         self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, self.fit)
+        if self.fit: self.setCoeffs()
 
     def getAttachedPoints(self, ptSetName):
         #Refresh attached points
@@ -29,13 +30,13 @@ class CSTMultiParam(object):
     def attachCSTParam(self, CSTParam, paramName, embeddedParams=None):
         embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
         embeddedParams[paramName] = EmbeddedParameterization(CSTParam)
-        self.setCoeffs()
 
     def updateCoeffs(self):
         "Update CST coefficients"
         i = 0
         for paramName in self.embeddedParams:
-            self.embeddedParams[paramName].updateCoeffs(self.coef[i])
+            self.embeddedParams[paramName].coeffs = self.coef[i].copy()
+            self.embeddedParams[paramName].updateCoeffs()
             i += 1
 
     def setCoeffs(self):
@@ -89,6 +90,19 @@ class CSTMultiParam(object):
             coords = param.param.updateCoords()
             ax.plot_trisurf(coords[:,0], coords[:,1], coords[:,2], triangles=tri.simplices.copy())
 
+    def fitMulti(self, file):
+        #Project points to surface/CST geom object (csv input)
+        if (os.path.exists(file)):
+            f = open(file,'r')
+            lines = f.readlines()
+            coordinates = []
+            for line in lines:
+                coordinates.append([float(_) for _ in line.split(',')])
+            self.embeddedSurfaces['fit'] = EmbeddedSurface(np.array(coordinates), self.embeddedParams, True)
+            self.setCoeffs()
+            print(self.coef)
+        else:
+            raise Exception('%s does not exist' % file)
 
 
 class EmbeddedSurface(object):
@@ -106,7 +120,7 @@ class EmbeddedSurface(object):
             self.paramMap = self.mapCoords2Params() #list
     
             #Group coordinates by parameterization and apply fit
-            self.parameterization = self.fitParams()
+            self.parameterization = self.fitParams(fit)
     
     #TODO Make this more efficient
     def mapCoords2Params(self):
@@ -195,7 +209,6 @@ class EmbeddedParameterization(object):
                 self.coeffs[j] = dependantCoeff['IVParam'].coeffs[i]
 
     def updateCoeffs(self):
-        self.coeffs = self.param.getCoeffs()
         self.applyConstraints()
         self.param.updateCoeffs(self.coeffs)
 
@@ -203,6 +216,7 @@ class EmbeddedParameterization(object):
         self.updateCoeffs()
         self.applyMasks()
         self.param.fit3d(np.atleast_2d(coordinates))
+        self.coeffs = self.param.getCoeffs()
         self.removeMasks()
 
     def calcParameterization(self, coordinates):
