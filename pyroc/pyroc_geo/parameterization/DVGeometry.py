@@ -18,7 +18,7 @@ class DVGeometry(object):
         self.name = name
 
         self.finalized = False
-        self.dtype = "d"
+        self.dtype = 'd'
 
         self.JT = {}
         self.nPts = {}

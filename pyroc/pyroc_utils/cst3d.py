@@ -83,18 +83,18 @@ class CST3DParam(object):
             - psi is the axis of rotation and chord axis for cross section
             - eta is angular axis
             - zeta is the radial axis
-        By default, [[1.0,0.0,0.0],
-                     [0.0,1.0,0.0],
-                     [0.0,0.0,1.0]]
+        - By default, [[1.0,0.0,0.0],
+                       [0.0,1.0,0.0],
+                       [0.0,0.0,1.0]]
 
     shapeScale: float
         If shapeCoeffs is not given, this value will be used for initial shape coeffs.
         shapeScale=-1.0 can be used for a -z surface initialization
         By default, 1.0
 
-    TODO Multiple sections - Higher level of abstraction?
-    TODO Overall abstraction/simplification, bugfixes
-    TODO Use internal derivatives instead of scipy optimization?
+    - TODO Multiple sections - Higher level of abstraction?
+    - TODO Overall abstraction/simplification, bugfixes
+    - TODO Use internal derivatives with scipy optimization
     """
 
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None,
@@ -271,7 +271,7 @@ class CST3DParam(object):
             surface[_,:] = (transMat @ transSurface[_,:]) + self.origin
         return surface
 
-    #Calculate cartesian of any parametric set and return
+    #Update Zeta, calculate cartesian of parametric set and return
     def calcCoords(self, psiEtaZeta):
         psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
         transSurface = np.vstack([self.calcPsiEtaZeta2X(psiEtaZeta),
@@ -290,6 +290,7 @@ class CST3DParam(object):
     def coords2PsiEtaZeta(self, surface):
         transSurface = self.transformSurface(surface)
         psiVals = self.calcXYZ2Psi(transSurface)
+        psiVals[psiVals==0.0] = 1e-8
         etaVals = self.calcXYZ2Eta(transSurface)
         zetaVals = self.calcXYZ2Zeta(transSurface)
         psiEtaZeta =  np.vstack([psiVals, etaVals, zetaVals]).T
@@ -301,7 +302,7 @@ class CST3DParam(object):
         return self.psiEtaZeta
 
     #Calculate x vals from y and z vals
-    #Will have multiple solutions?
+    #Broken will have multiple solutions
     def calcYZ2X(self, yVals, zVals):
         xyz = np.vstack([np.zeros_like(yVals), yVals, zVals]).T
         etaVals = self.calcXYZ2Eta(xyz)
@@ -465,8 +466,11 @@ class CST3DParam(object):
         def surface(xyVals, *coeffs):
             self.updateCoeffs(list(coeffs))
             return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
+        def jac(xyVals, *coeffs):
+            surf = np.vstack([xyVals[:,0], xyVals[:,1], surface(xyVals, *coeffs)]).T
+            return self.calcJacobian(surf)[2::3,2::3]
         #TODO Fix warning for cov params being inf in certain conditions
-        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],np.atleast_1d(self.getCoeffs()))
+        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],np.atleast_1d(self.getCoeffs()),jac=jac)
         self.updateCoeffs(coeffs)
         self.updateZeta()
         return 0
@@ -616,7 +620,7 @@ class CSTAirfoil3D(CST3DParam):
         return self.csGeo.calcPsi(psiEtaZeta[:,2])
 
     def calcEta(self, psiEtaZeta):
-        return 0
+        return psiEtaZeta[:,1]
 
     def calcZeta(self, psiEtaZeta):
         return self.csGeo.calcZeta(psiEtaZeta[:,0])
@@ -939,7 +943,7 @@ class CSTWing3D(CST3DParam):
             shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
             shapeJac[2::3, 2::3] = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
             for _ in range(nCoeffs):
-                shapeJac[2::3,3*_+2] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
+                shapeJac[2::3,3*_+2] = shapeJac[2::3,3*_+2] * self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
         else:
             shapeJac = None
         return shapeJac
@@ -1311,7 +1315,7 @@ class CSTRevolve3D(CST3DParam):
             shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
             shapeJac[2::3, 2::3] = bernstein2DJacobian(psiEtaZeta[:,0], psiEtaZeta[:,1], nx, ny, h)
             for _ in range(nCoeffs):
-                shapeJac[2::3,3*_+2] *= self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
+                shapeJac[2::3,3*_+2] = shapeJac[2::3,3*_+2] * self.csClassFunc(psiEtaZeta,self.csClassCoeffs)
         else:
             shapeJac = None
         return shapeJac

@@ -44,21 +44,21 @@ class DVGeometryCST(DVGeometry):
         points = np.array(points).real.astype("d")
         self.points[ptName] = points
 
-        # TODO Ensure we project into the undeformed geometry
-        #if origConfig:
-        #    tmpCoef = self.param.coef.copy()
-        #    self.param.coef = self.origParamCoef
-        #    self.param.updateCoeffs()
+        # Ensure we project into the undeformed geometry
+        if origConfig:
+            tmpCoef = self.param.coef.copy()
+            self.param.coef = self.origParamCoef
+            self.param.updateCoeffs()
 
         self.param.attachPoints(self.points[ptName], ptName)
 
-        #if origConfig:
-        #    self.param.coef = tmpCoef
-        #    self.param.updateCoeffs()
+        if origConfig:
+            self.param.coef = tmpCoef
+            self.param.updateCoeffs()
 
-        #TODO Update design variables with fit coefficients
-        for key in self.DV_listLocal:
-            self.DV_listLocal[key].apply(self.param.coef)
+        # Update design variables with fit coefficients
+        #for key in self.DV_listLocal:
+        #    self.DV_listLocal[key].apply(self.param.coef)
 
         self.param.calcdPtdCoef(ptName)
         self.updated[ptName] = False

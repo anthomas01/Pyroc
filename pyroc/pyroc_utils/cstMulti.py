@@ -13,12 +13,18 @@ class CSTMultiParam(object):
         self.coef = None
         self.embeddedSurfaces = OrderedDict()
         self.embeddedParams = OrderedDict()
+        #Refit when adding new coords?
         self.fit = False
 
-    def attachPoints(self, coordinates, ptSetName, embeddedParams=None):
+    def attachPoints(self, coordinates, ptSetName, embeddedParams=None, parameterization=False):
         #Project points to surface/CST geom object if some were passed in
         embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
-        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, self.fit)
+        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, parameterization=parameterization)
+
+    def attachParameterization(self, parameterization, ptSetName, embeddedParams=None):
+        #Project points to surface/CST geom object if some were passed in
+        embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
+        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(parameterization, embeddedParams, self.fit)
         if self.fit: self.setCoeffs()
 
     def getAttachedPoints(self, ptSetName):
@@ -63,14 +69,17 @@ class CSTMultiParam(object):
         #size of dPtdCoef will be 3*Npts x 3*Ncoef
         dPtdCoef = np.zeros((3*nPts, 3*nCoef))
 
-        for _ in range(nPts):
-            paramName = embeddedSurface.paramMap[_]
+        for paramName in np.unique(embeddedSurface.paramMap):
             param = self.embeddedParams[paramName]
-            choppedJac = param.calcdPtdCoef(embeddedSurface.coordinates[_]) #This is the expensive operation, vectorize here?
+            coordIndices = np.where(np.array(embeddedSurface.paramMap)==paramName)[0]
+            choppedJac = param.calcdPtdCoef(embeddedSurface.coordinates[coordIndices])
             #Insert into dPtdCoef based on coefficient mapping
             i = 0
-            for __ in coefMap[paramName]:
-                dPtdCoef[3*_:3*(_+1), 3*__:3*(__+1)] = choppedJac[:, 3*i:3*(i+1)]
+            for _ in coordIndices:
+                j = 0
+                for __ in coefMap[paramName]:
+                    dPtdCoef[3*_:3*(_+1), 3*__:3*(__+1)] = choppedJac[3*i:3*(i+1), 3*j:3*(j+1)]
+                    j+=1
                 i+=1
 
         #Finally, store variable as sparse matrix
@@ -98,9 +107,9 @@ class CSTMultiParam(object):
             coordinates = []
             for line in lines:
                 coordinates.append([float(_) for _ in line.split(',')])
-            self.embeddedSurfaces['fit'] = EmbeddedSurface(np.array(coordinates), self.embeddedParams, True)
+            self.embeddedSurfaces['fit'] = EmbeddedSurface(np.array(coordinates), self.embeddedParams, fit=True)
             self.setCoeffs()
-            print(self.coef)
+            f.close()
         else:
             raise Exception('%s does not exist' % file)
 
@@ -108,21 +117,31 @@ class CSTMultiParam(object):
 class EmbeddedSurface(object):
     #Class for managing multiple CST surfaces
 
-    def __init__(self, coordinates, embeddedParams, fit=True):
-        #Read in coords, ndarray (N,3)
-        self.coordinates = coordinates
+    def __init__(self, coordinates, embeddedParams, fit=False, fitIter=1, parameterization=False):
         self.embeddedParams = embeddedParams
-        self.dPtdCoef = None
         self.N = len(coordinates)
 
-        for _ in range(2):
-            #Determine which embedded parameterization object each coordinate belongs to
-            self.paramMap = self.mapCoords2Params() #list
+        if parameterization:
+            for _ in range(fitIter):
+                self.parameterization = coordinates
+                #Determine which embedded parameterization object each coordinate belongs to
+                self.paramMap = self.mapParameterization2Params(self.parameterization) #list
+
+                self.coordinates = self.parameterization
+                self.updateCoords()
+
+        else:
+            #Read in coords, ndarray (N,3)
+            self.coordinates = coordinates
+
+            for _ in range(fitIter):
+                #Determine which embedded parameterization object each coordinate belongs to
+                self.paramMap = self.mapCoords2Params() #list
+
+                #Group coordinates by parameterization and apply fit if True
+                self.parameterization = self.fitParams(fit)
     
-            #Group coordinates by parameterization and apply fit
-            self.parameterization = self.fitParams(fit)
-    
-    #TODO Make this more efficient
+    #TODO Make these more efficient
     def mapCoords2Params(self):
         #Returns array that is the same size as the coordinate list
         #Each indice contains the name of an EmbeddedParameterization object
@@ -142,20 +161,40 @@ class EmbeddedSurface(object):
                 elif d2<closest:
                     paramMap[_] = paramName
                     closest = d2
-                    
         return paramMap
 
-    #TODO Make this more efficient
+    def mapParameterization2Params(self, parameterization):
+        '''Returns array that is the same size as the coordinate list.
+           Each indice contains the name of an EmbeddedParameterization object'''
+        N = len(parameterization)
+        paramMap = ['' for _ in range(N)]
+        for _ in range(N):
+            #Brute force least square distance?
+            closest = 1e8
+            for paramName in self.embeddedParams:
+                param = self.embeddedParams[paramName]
+                psiEtaZeta = parameterization
+                psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta)
+
+                d2 = np.sum(np.power(parameterization-psiEtaZeta,2))
+                if d2==closest and paramMap[_-1]==paramName:
+                    paramMap[_] = paramName
+                elif d2<closest:
+                    paramMap[_] = paramName
+                    closest = d2
+        return paramMap
+
+    #Vectorize based on parameterization and update coordinates
     def updateCoords(self):
         coordinates = np.zeros((self.N,3))
-        for _ in range(self.N):
-            paramName = self.paramMap[_]
+        for paramName in np.unique(self.paramMap):
             param = self.embeddedParams[paramName]
-            psiEtaZeta = self.parameterization[_]
-            coordinates[_,:] = param.calcCoords(psiEtaZeta)
+            coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
+            psiEtaZeta = self.parameterization[coordinateIndices]
+            coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
 
-    def fitParams(self, performFit=True):
+    def fitParams(self, performFit=False):
         #Group coordinates by parameterization
         paramCoords = {}
         uniqueParams = np.unique(self.paramMap)
@@ -172,9 +211,10 @@ class EmbeddedSurface(object):
 
         #Update parameterization
         parameterization = np.zeros_like(self.coordinates)
-        for _ in range(self.N):
-            param = self.embeddedParams[self.paramMap[_]]
-            parameterization[_,:] = param.calcParameterization(self.coordinates[_,:])
+        for paramName in uniqueParams:
+            param = self.embeddedParams[paramName]
+            coordIndices = np.where(np.array(self.paramMap)==paramName)[0]
+            parameterization[coordIndices] = param.calcParameterization(self.coordinates[coordIndices])
 
         return parameterization
 
@@ -224,6 +264,9 @@ class EmbeddedParameterization(object):
 
     def calcCoords(self, psiEtaZeta):
         return self.param.calcCoords(np.atleast_2d(psiEtaZeta))
+
+    def calcZeta(self, psiEtaZeta):
+        return self.param.calcZeta(np.atleast_2d(psiEtaZeta))
 
     def calcdPtdCoef(self, coordinates):
         return self.param.calcJacobian(np.atleast_2d(coordinates))

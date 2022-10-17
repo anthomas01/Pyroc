@@ -12,8 +12,8 @@ import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from scipy.spatial import Delaunay
 
-from .designVars import *
-from .miscVar import *
+from ..pyroc_utils.designVars import *
+from ..pyroc_utils.miscVar import *
 
 #Testing
 
@@ -63,11 +63,12 @@ class PyrocDesign(object):
     Parameters
     ----------------
     geo: object
-        Geometry object for computing surface from coefficients
+        CSTMulti object for computing surface from coefficients
     '''
 
-    def __init__(self, geo=None, mode='2d', figsize=4, res=[100,10]):
+    def __init__(self, geo, name='designGUI', mode='2d', figsize=4, res=[100,10]):
         self.geo = geo
+        self.name = name
         self.mode = mode
 
         self.root = tk.Tk()
@@ -85,13 +86,17 @@ class PyrocDesign(object):
             pass
 
         surf0 = np.array([])
-        for surf in self.geo.surfaces:
-            c = surf.updateCoords()
+        for ptSetName in self.geo.embeddedSurfaces:
+            coords = self.geo.getAttachedPoints(ptSetName)
             if len(surf0)>0:
-                surf0 = np.append(surf0,c,axis=0)
+                surf0 = np.append(surf0,coords,axis=0)
             else:
-                surf0 = c
+                surf0 = coords
+
+        #Check dimensions        
         self.ndim = len(surf0[0,:])
+
+        #Set plot bounds, etc
         bounds = np.array([[np.min(surf0[:,_]), np.max(surf0[:,_])] for _ in range(self.ndim)])
         width = 0.25
         self.lim = np.array([[bounds[_,0]-width, bounds[_,1]+width] for _ in range(self.ndim)])
@@ -114,9 +119,9 @@ class PyrocDesign(object):
         # Increase the font size
         matplotlib.rcParams.update({'font.size': 16})
 
-        if self.mode in ['2d','3d']:
+        if self.mode in ['2d','2dcut','3d']:
             self.fig.clf()
-            if self.mode=='2d':
+            if self.mode in ['2d', '2dcut']:
                 self.plotAx = self.fig.add_subplot(1, 1, 1)
             else:
                 self.plotAx = self.fig.add_subplot(1, 1, 1, projection='3d')
@@ -124,6 +129,7 @@ class PyrocDesign(object):
             raise Exception(str(self.mode)+' mode not implemented')
 
         self.dvDict = self.createDvDict(self.geo)
+        self.setupGeo()
         self.draw_gui()
         self.update(None)
 
@@ -247,7 +253,7 @@ class PyrocDesign(object):
 
     def createDvDict(self, geo):
         dvDict = OrderedDict()
-        dvList = geo.getCoeffs()
+        dvList = geo.coef
         for _ in range(len(dvList)):
             dvSet = dvList[_]
             dvDict['dvSet'+str(_)] = OrderedDict()
@@ -291,43 +297,83 @@ class PyrocDesign(object):
             cdict['blue'].append([x[_], tone, tone])
         return matplotlib.colors.LinearSegmentedColormap('CustomMap', cdict)
 
+    def setupGeo(self):
+        if self.mode == '2d':
+            x = np.append(np.linspace(0.0,1.0,self.resolution[0].get()),
+                          np.linspace(0.0,1.0,self.resolution[0].get()))
+            parameterization = np.vstack([x, positiveOrNegative(len(x))]).T
+            self.geo.attachPoints(parameterization, self.name, parameterization=True)
+
+        elif self.mode == '2dcut':
+            x = np.append(np.linspace(0.0,1.0,self.resolution[0].get()),
+                          np.linspace(0.0,1.0,self.resolution[0].get()))
+            parameterization = np.vstack([x, np.zeros_like(x), positiveOrNegative(len(x))]).T
+            self.geo.attachPoints(parameterization, self.name, parameterization=True)
+
+        elif self.mode =='3d':
+            x = np.append(np.linspace(1e-6,1.0-1e-6,self.resolution[0].get()),
+                          np.linspace(1e-6,1.0-1e-6,self.resolution[0].get()))
+            y = np.append(np.linspace(1e-6,1.0-1e-6,self.resolution[1].get()),
+                          np.linspace(1e-6,1.0-1e-6,self.resolution[1].get()))
+            xv,yv = np.meshgrid(x,y)
+            xv,yv = xv.flatten(), yv.flatten()
+            parameterization = np.vstack([xv, yv, positiveOrNegative(len(xv))]).T
+            self.geo.attachPoints(parameterization, self.name, parameterization=True)
+
     def update(self, e):
-        self.geo.updateCoeffs([[self.dvDict[_][__].getValue() for __ in self.dvDict[_].keys()] for _ in self.dvDict.keys()])
+        self.geo.coef = [[self.dvDict[_][__].getValue() for __ in self.dvDict[_].keys()] for _ in self.dvDict.keys()]
+        self.geo.updateCoeffs()
         self.plotAx.cla()
-        numSurf = len(self.geo.surfaces)
 
         if self.mode == '2d':
-            for _ in range(numSurf):
-                surf = self.geo.surfaces[_]
-                x=np.linspace(0.0,1.0,self.resolution[0].get())
-                surf.setPsiZeta(x)
-                newCoords = surf.updateCoords()
-                self.plotAx.plot(newCoords[:,0], newCoords[:,1])
+            surf = self.geo.embeddedSurfaces[self.name]
+            x = np.append(np.linspace(0.0,1.0,self.resolution[0].get()),
+                          np.linspace(0.0,1.0,self.resolution[0].get()))
+            parameterization = np.vstack([x, np.zeros_like(x)]).T
+            surf.__init__(parameterization, self.geo.embeddedParams, parameterization=True)
+            newCoords = surf.coordinates
+            self.plotAx.plot(newCoords[:,0], newCoords[:,1])
             self.plotAx.set_xlabel('x')
             self.plotAx.set_ylabel('z')
             self.plotAx.axes.set_xlim([self.lim[0,0],self.lim[0,1]])
             self.plotAx.axes.set_ylim([self.lim[1,0],self.lim[1,1]])
+
+        elif self.mode == '2dcut':
+            surf = self.geo.embeddedSurfaces[self.name]
+            x = np.append(np.linspace(0.0,1.0,self.resolution[0].get()),
+                          np.linspace(0.0,1.0,self.resolution[0].get()))
+            parameterization = np.vstack([x, np.zeros_like(x), np.zeros_like(x)]).T
+            surf.__init__(parameterization, self.geo.embeddedParams, parameterization=True)
+            newCoords = surf.coordinates
+            self.plotAx.plot(newCoords[:,0], newCoords[:,2])
+            self.plotAx.set_xlabel('x')
+            self.plotAx.set_ylabel('z')
+            self.plotAx.axes.set_xlim([self.lim[0,0],self.lim[0,1]])
+            self.plotAx.axes.set_ylim([self.lim[1,0],self.lim[1,1]])
+
         elif self.mode =='3d':
-            for _ in range(numSurf):
-                surf = self.geo.surfaces[_]
-                x=np.linspace(1e-6,1.0-1e-6,self.resolution[0].get())
-                y=np.linspace(1e-6,1.0-1e-6,self.resolution[1].get())
-                xv,yv = np.meshgrid(x,y)
-                xv,yv = xv.flatten(), yv.flatten()
-                tri = Delaunay(np.array([xv,yv]).T)
-                psiEtaZeta = np.vstack([xv, yv, np.zeros_like(xv)]).T
-                surf.setPsiEtaZeta(psiEtaZeta)
-                newCoords = surf.updateCoords()
-                if self.sensitivity is not None and self.sensitivity[0]==_:
-                    sensitivity = surf.calcJacobian(newCoords)[self.sensitivity[2]::3,3*self.sensitivity[1]+self.sensitivity[2]]
-                else:
-                    sensitivity = newCoords[:,2]
-                if np.max(sensitivity)==np.min(sensitivity):
-                    normSens = sensitivity
-                else:
-                    normSens = np.abs(sensitivity-np.min(sensitivity))/(np.max(sensitivity)-np.min(sensitivity))
-                cmap = self.makeColormap(normSens)
-                self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices, cmap=cmap)
+            surf = self.geo.embeddedSurfaces[self.name]
+            x = np.append(np.linspace(1e-6,1.0-1e-6,self.resolution[0].get()),
+                          np.linspace(1e-6,1.0-1e-6,self.resolution[0].get()))
+            y = np.append(np.linspace(1e-6,1.0-1e-6,self.resolution[1].get()),
+                          np.linspace(1e-6,1.0-1e-6,self.resolution[1].get()))
+            xv,yv = np.meshgrid(x,y)
+            xv,yv = xv.flatten(), yv.flatten()
+            tri = Delaunay(np.array([xv,yv]).T)
+            parameterization = np.vstack([xv, yv, np.zeros_like(xv)]).T
+            surf.__init__(parameterization, self.geo.embeddedParams, parameterization=True)
+            newCoords = surf.coordinates
+            #newCoords = np.sort(surf.coordinates,axis=0)
+            # if self.sensitivity is not None and self.sensitivity[0]==i:
+            #     sensitivity = surf.calcJacobian(newCoords)[self.sensitivity[2]::3,3*self.sensitivity[1]+self.sensitivity[2]]
+            # else:
+            #     sensitivity = newCoords[:,2]
+            # if np.max(sensitivity)==np.min(sensitivity):
+            #     normSens = sensitivity
+            # else:
+            #     normSens = np.abs(sensitivity-np.min(sensitivity))/(np.max(sensitivity)-np.min(sensitivity))
+            #cmap = self.makeColormap(normSens)
+            self.plotAx.plot_trisurf(newCoords[:,0], newCoords[:,1], newCoords[:,2], triangles=tri.simplices)#,cmap=cmap)
             self.plotAx.set_xlabel('x')
             self.plotAx.set_ylabel('y')
             self.plotAx.set_zlabel('z')
@@ -335,23 +381,3 @@ class PyrocDesign(object):
             self.plotAx.axes.set_ylim3d([self.lim[1,0],self.lim[1,1]])
             self.plotAx.axes.set_zlim3d([self.lim[2,0],self.lim[2,1]])
         self.canvas.draw()
-
-class GeoEx():
-    #Experimental class for basic coupling of cst surfaces
-    def __init__(self, surfaces=[], coeffPairs=None):
-        self.surfaces = surfaces
-        self.nSurf = len(self.surfaces)
-        self.coeffPairs = coeffPairs
-        self.coeffs = self.getCoeffs()
-
-    def updateCoeffs(self,coeffs):
-        self.coeffs = []
-        for _ in range(self.nSurf):
-            self.coeffs.append(coeffs[_])
-            self.surfaces[_].updateCoeffs(self.coeffs[-1])
-
-    def getCoeffs(self):
-        coeffs = []
-        for _ in range(len(self.surfaces)):
-            coeffs.append(self.surfaces[_].getCoeffs())
-        return coeffs

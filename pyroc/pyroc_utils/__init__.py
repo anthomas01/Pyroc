@@ -10,8 +10,6 @@ from .cst3d import *
 from .cstMulti import *
 
 from .designVars import *
-#from .designGui import *
-#from .postGui import *
 
 #import sys
 #sys.setrecursionlimit(10000)

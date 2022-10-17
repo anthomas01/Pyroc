@@ -49,7 +49,9 @@ import matplotlib.pyplot as plt
 
 #Design GUI Example
 x = np.linspace(0,1.0,100)
+x = np.append(x,np.array([1.0,1.0,1.0]),0)
 z = np.zeros_like(x)
+
 arr = np.array(list(zip(x,z)))
 upper = CSTAirfoil2D(arr,order=3)
 lower = CSTAirfoil2D(arr,order=3,shapeScale=-1.0)

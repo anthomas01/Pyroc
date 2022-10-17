@@ -40,10 +40,9 @@ class CST2DParam(object):
         If shapeCoeffs is not given, this value will be used for initial shape coeffs.
         shapeScale=-1.0 can be used for a -z surface initialization
 
-    TODO -Designing on curved centerline/variable camber?
-         -Error checking
-            Coeffs?
-            BCs?
+    - TODO Designing on curved centerline/variable camber?
+    - TODO Error checking - Coeffs? BCs?
+    - TODO Use internal derivatives with scipy optimization
     """
 
     def __init__(self, coords, classFunc=None, classCoeffs=[], shapeCoeffs=[], masks=[], 
@@ -93,7 +92,7 @@ class CST2DParam(object):
         augments = bernstein1D(psiVals, self.order) @ coeffs
         return augments.flatten()
 
-    # Functions for converting arrays of coordinates from parametric space to cartesian
+    # Functions for converting arrays of coordinates between parametric space and cartesian
     def calcX2Psi(self, xVals):
         psiVals = xVals/self.refLen
         return psiVals
@@ -111,7 +110,7 @@ class CST2DParam(object):
         return zVals
 
     #Estimates psi vals from zeta values
-    ##Broken, needs to have better initial guess
+    ##Broken, needs to have better initial guess, duplicate zeta values
     def calcPsi(self, zetaVals):
         def objFunc(psiVals):
             return self.calcZeta(psiVals)-zetaVals
@@ -119,8 +118,22 @@ class CST2DParam(object):
         return psiVals
 
     #Explicitly calculate zeta values
+    #Credit: Moral support from Nolan Jeffrey Glock
+    #TODO handle duplicate psi values (trailing edge points)
     def calcZeta(self, psiVals):
+        #Core calculation
         zetaVals = self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)+psiVals*(self.shapeOffset/self.refLen)
+        #Find duplicate psi values
+        uniquePsi, uniquePsiIndex, countsPsi = np.unique(psiVals, return_index=True, return_counts=True)
+        duplicatePsiIndex = [i for i in range(len(psiVals)) if i not in uniquePsiIndex]
+        #print('dupe',duplicatePsiIndex)
+        #Scale zeta values
+        for i in duplicatePsiIndex:
+            psi = psiVals[i]
+            uniquePsiIndex = np.where(uniquePsi==psi)[0][0]
+            allPsiIndices = np.where(psiVals==psi)[0]
+            n = np.where(allPsiIndices==i)[0][0]
+            zetaVals[i] = zetaVals[i] * n / countsPsi[uniquePsiIndex]
         return zetaVals
 
     #Update zeta values from internal psi values
@@ -218,7 +231,7 @@ class CST2DParam(object):
     #dZdCoeffs jacobian matrix [nPts, nCoeffs]
     #  - same as paramJacobian since all normalized by chord length
     def calcJacobian(self, xVals, h=1e-8):
-        paramJac =  self.calcParamJacobian(self.calcX2Psi(xVals), h)
+        paramJac = self.calcParamJacobian(self.calcX2Psi(xVals), h)
         return paramJac*self.refLen #dZdCoeffs = dZdZZeta * dZetadCoeffs
 
     def getJacobian(self):
@@ -267,16 +280,38 @@ class CST2DParam(object):
         if nShapeCoeffs>0:
             shapeJac = bernstein1DJacobian(psiVals, n, h)
             for _ in range(n+1):
-                shapeJac[:,_] *= self.classFunc(psiVals,self.classCoeffs)
+                shapeJac[:,_] = shapeJac[:,_] * self.classFunc(psiVals,self.classCoeffs)
+            #Find duplicate psi values
+            uniquePsi, uniquePsiIndex, countsPsi = np.unique(psiVals, return_index=True, return_counts=True)
+            duplicatePsiIndex = [i for i in range(len(psiVals)) if i not in uniquePsiIndex]
+            #Scale zeta derivatives
+            for i in duplicatePsiIndex:
+                psi = psiVals[i]
+                uniquePsiIndex = np.where(uniquePsi==psi)[0][0]
+                allPsiIndices = np.where(psiVals==psi)[0]
+                n = np.where(allPsiIndices==i)[0][0]
+                shapeJac[i,:] = shapeJac[i,:] * n / countsPsi[uniquePsiIndex] 
         else:
             shapeJac = None
         return shapeJac
 
     #dZetadOffset - analytic, independent of class func
     def _calcOffsetJacobian(self, psiVals, h=1e-8):
-        jacOffset = np.zeros((len(psiVals),1))
-        jacOffset[:,0] = psiVals/self.refLen
-        return jacOffset
+        offsetJac = np.zeros((len(psiVals),1))
+        offsetJac[:,0] = psiVals/self.refLen
+
+        #Find duplicate psi values
+        uniquePsi, uniquePsiIndex, countsPsi = np.unique(psiVals, return_index=True, return_counts=True)
+        duplicatePsiIndex = [i for i in range(len(psiVals)) if i not in uniquePsiIndex]
+        #Scale zeta derivatives
+        for i in duplicatePsiIndex:
+            psi = psiVals[i]
+            uniquePsiIndex = np.where(uniquePsi==psi)[0][0]
+            allPsiIndices = np.where(psiVals==psi)[0]
+            n = np.where(allPsiIndices==i)[0][0]
+            offsetJac[i,:] = offsetJac[i,:] * n / countsPsi[uniquePsiIndex]
+
+        return offsetJac
 
 
 class CSTAirfoil2D(CST2DParam):
@@ -326,6 +361,18 @@ class CSTAirfoil2D(CST2DParam):
         dZetadPsi = (self._calcClassDeriv(psihVals)*self.shapeFunc(psihVals,self.shapeCoeffs) +
                      self.classFunc(psihVals,self.classCoeffs)*self._calcShapeDeriv(psihVals) +
                      self.shapeOffset/self.refLen)
+
+        #Find duplicate psi values
+        uniquePsi, uniquePsiIndex, countsPsi = np.unique(psiVals, return_index=True, return_counts=True)
+        duplicatePsiIndex = [i for i in range(len(psiVals)) if i not in uniquePsiIndex]
+        #Scale zeta derivatives
+        for i in duplicatePsiIndex:
+            psi = psiVals[i]
+            uniquePsiIndex = np.where(uniquePsi==psi)[0][0]
+            allPsiIndices = np.where(psiVals==psi)[0]
+            n = np.where(allPsiIndices==i)[0][0]
+            dZetadPsi[i,:] = dZetadPsi[i,:] * n / countsPsi[uniquePsiIndex]
+
         return dZetadPsi
 
     def _calcClassDeriv(self, psiVals, h=1e-8):
@@ -342,4 +389,17 @@ class CSTAirfoil2D(CST2DParam):
         n1,n2 = self.classCoeffs
         dZetadN1 = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadN2 = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiVals,self.shapeCoeffs)
-        return np.vstack([dZetadN1,dZetadN2]).T
+        dZetadClass = np.vstack([dZetadN1,dZetadN2]).T
+
+        #Find duplicate psi values
+        uniquePsi, uniquePsiIndex, countsPsi = np.unique(psiVals, return_index=True, return_counts=True)
+        duplicatePsiIndex = [i for i in range(len(psiVals)) if i not in uniquePsiIndex]
+        #Scale zeta derivatives
+        for i in duplicatePsiIndex:
+            psi = psiVals[i]
+            uniquePsiIndex = np.where(uniquePsi==psi)[0][0]
+            allPsiIndices = np.where(psiVals==psi)[0]
+            n = np.where(allPsiIndices==i)[0][0]
+            dZetadClass[i,:] = dZetadClass[i,:] * n / countsPsi[uniquePsiIndex]
+
+        return dZetadClass
