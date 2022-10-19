@@ -1,5 +1,6 @@
 import scipy.optimize as scp
 import numpy as np
+from collections import OrderedDict
 from .cst2d import *
 
 class CST3DParam(object):
@@ -188,7 +189,7 @@ class CST3DParam(object):
     def calcXYZ2Eta(self, xyz):
         return xyz[:,1]/self.refSpan
 
-    #Calculate zeta vals from y and z vals
+    #Calculate zeta vals from x, y and z vals
     def calcXYZ2Zeta(self, xyz):
         etaVals = self.calcXYZ2Eta(xyz)
         psiEtaZeta = np.vstack([np.zeros_like(etaVals), etaVals, np.zeros_like(etaVals)]).T
@@ -273,7 +274,6 @@ class CST3DParam(object):
 
     #Update Zeta, calculate cartesian of parametric set and return
     def calcCoords(self, psiEtaZeta):
-        psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
         transSurface = np.vstack([self.calcPsiEtaZeta2X(psiEtaZeta),
                                   self.calcPsiEtaZeta2Y(psiEtaZeta),
                                   self.calcPsiEtaZeta2Z(psiEtaZeta)]).T
@@ -289,11 +289,10 @@ class CST3DParam(object):
     #Calculate psi,eta,zeta from surface
     def coords2PsiEtaZeta(self, surface):
         transSurface = self.transformSurface(surface)
-        psiVals = self.calcXYZ2Psi(transSurface)
-        psiVals[psiVals==0.0] = 1e-8
-        etaVals = self.calcXYZ2Eta(transSurface)
-        zetaVals = self.calcXYZ2Zeta(transSurface)
-        psiEtaZeta =  np.vstack([psiVals, etaVals, zetaVals]).T
+        psiEtaZeta =  np.vstack([self.calcXYZ2Psi(transSurface),
+                                 self.calcXYZ2Eta(transSurface),
+                                 self.calcXYZ2Zeta(transSurface)]).T
+        psiEtaZeta[psiEtaZeta[:,0]==0.0] = 1e-8
         return psiEtaZeta
 
     #Set psi/eta values and update zeta
@@ -448,6 +447,7 @@ class CST3DParam(object):
             for _ in range(nCoeffs):
                 coeffs[_] += h
                 self.updateCoeffs(coeffs)
+                psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
                 surfaceH = self.calcCoords(psiEtaZeta)
                 for __ in range(3):
                     totalJac[__::3,3*_+__] = (surfaceH[:,__]-surface[:,__])/h
@@ -623,7 +623,8 @@ class CSTAirfoil3D(CST3DParam):
         return psiEtaZeta[:,1]
 
     def calcZeta(self, psiEtaZeta):
-        return self.csGeo.calcZeta(psiEtaZeta[:,0])
+        zetaVals = self.csGeo.calcZeta(psiEtaZeta[:,0])
+        return zetaVals
 
     def calcXZ2Y(self, xVals, zVals):
         return 0
@@ -657,9 +658,14 @@ class CSTAirfoil3D(CST3DParam):
                     paramJac = paramsJac[3*_:3*(_+1), 3*__:3*(__+1)]
                     dXYZdCoeffVec = ptJac @ np.diagonal(paramJac)
                     totalJac[3*_:3*(_+1), 3*__:3*(__+1)] = np.diag(dXYZdCoeffVec)
+
         else:
             totalJac = None
         return totalJac
+
+    #dPsiEtaZetadParams
+    def calcParamsJacobian(self, psiEtaZeta, h=1e-8):
+        paramsJac = super().calcParamsJacobian(psiEtaZeta, h)
 
     #dPsiEtaZetadCsClassCoeffs (Analytical)
     def _calcCsClassJacobian(self, psiEtaZeta, h=1e-8):

@@ -4,6 +4,7 @@ from scipy import sparse
 from scipy.spatial import Delaunay
 import numpy as np
 import os
+import matplotlib.pyplot as plt
 
 class CSTMultiParam(object):
     #Class for managing multiple CST geometry objects
@@ -51,6 +52,42 @@ class CSTMultiParam(object):
         for paramName in self.embeddedParams:
             paramCoeffs = self.embeddedParams[paramName].coeffs
             self.coef.append(paramCoeffs)
+
+    def addConnection(self, connectionName, connectingParam1, connectingParam2, connectionType=0):
+        '''
+        Add connection between parameterization objects
+
+        Parameters
+        -----------
+
+        connectionName - str
+        Name for connections dictionary
+
+        connectingParam - EmbeddedParameterization
+        Parameterization object to make connection to
+
+        connectionType - str
+        Valid options are:
+            - 0 (duplicate psi/eta or blunt face, i.e. blunt TE)
+        '''
+
+        if connectionType in [0]:
+            #Create blunt face for duplicate Psi, Eta Values
+            
+            #Set connection dictionaries
+            connectingParam1.connectionsDict[connectionName] = {
+                'type': 0,
+                'connectingParam': connectingParam2,
+                'initialized': False
+            }
+            connectingParam2.connectionsDict[connectionName] = {
+                'type': 0,
+                'connectingParam': connectingParam1,
+                'initialized': False
+            }
+
+        else:
+            raise Exception('Connection type %d not implemented' % connectionType)
 
     #TODO Make this more efficient
     def calcdPtdCoef(self, ptSetName):
@@ -122,21 +159,23 @@ class EmbeddedSurface(object):
         self.N = len(coordinates)
 
         if parameterization:
-            for _ in range(fitIter):
-                self.parameterization = coordinates
-                #Determine which embedded parameterization object each coordinate belongs to
-                self.paramMap = self.mapParameterization2Params(self.parameterization) #list
+            #Read in parameterization, ndarray (N,3)
+            self.parameterization = np.copy(coordinates)
+            #Determine which embedded parameterization object each coordinate belongs to
+            self.paramMap = self.mapParameterization2Params(self.parameterization) #list
 
-                self.coordinates = self.parameterization
-                self.updateCoords()
+            self.coordinates = self.parameterization
+            self.updateCoords()
 
         else:
             #Read in coords, ndarray (N,3)
-            self.coordinates = coordinates
+            self.coordinates = np.copy(coordinates)
 
             for _ in range(fitIter):
                 #Determine which embedded parameterization object each coordinate belongs to
                 self.paramMap = self.mapCoords2Params() #list
+
+                self.initializeParameterizationConnections()
 
                 #Group coordinates by parameterization and apply fit if True
                 self.parameterization = self.fitParams(fit)
@@ -161,6 +200,7 @@ class EmbeddedSurface(object):
                 elif d2<closest:
                     paramMap[_] = paramName
                     closest = d2
+
         return paramMap
 
     def mapParameterization2Params(self, parameterization):
@@ -172,9 +212,9 @@ class EmbeddedSurface(object):
             #Brute force least square distance?
             closest = 1e8
             for paramName in self.embeddedParams:
-                param = self.embeddedParams[paramName]
+                embeddedParam = self.embeddedParams[paramName]
                 psiEtaZeta = parameterization
-                psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta)
+                psiEtaZeta[:,2] = embeddedParam.calcZeta(psiEtaZeta)
 
                 d2 = np.sum(np.power(parameterization-psiEtaZeta,2))
                 if d2==closest and paramMap[_-1]==paramName:
@@ -183,6 +223,57 @@ class EmbeddedSurface(object):
                     paramMap[_] = paramName
                     closest = d2
         return paramMap
+
+    def initializeParameterizationConnections(self):
+        '''
+        Determines connection parameters for point set
+        '''
+        for paramName in self.embeddedParams:
+            embeddedParam = self.embeddedParams[paramName]
+
+            for connectionName in embeddedParam.connectionsDict:
+                connection = embeddedParam.connectionsDict[connectionName]
+
+                if connection['type'] in [0] and not connection['initialized']:
+                    ##dn = f1-(f1-f2)*(n-1)/(N-1)
+                    #Need to calculate N and n map for duplicate indices
+
+                    #Get this parameterization
+                    #thisCoordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
+                    #thisParameterization = self.parameterization[thisCoordinateIndices]
+                    #thisCoordinates = self.coordinates[thisCoordinateIndices]
+                    
+                    #Get connecting parameterization
+                    #connectingCoordinateIndices = np.where(np.array(self.paramMap)==connection['connectingParam'])[0]
+                    #connectingParameterization = self.parameterization[connectingCoordinateIndices]
+
+                    #Find duplicate psi,eta values for entire point set
+                    psiEtaVals = self.parameterization[:,0:1]
+                    uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
+                    duplicatePsiEtaIndex = [i for i in range(len(self.parameterization)) if i not in uniquePsiEtaIndices]
+
+                    totalDuplicatePsiEtaIndex = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)][0], duplicatePsiEtaIndex)
+                    totalDuplicatePsiEtaIndex = np.sort(totalDuplicatePsiEtaIndex) #sorted to consistently match up N and n arrays to values
+                    totalCountsDuplicates = np.zeros_like(totalDuplicatePsiEtaIndex)
+                    countsDuplicates = np.zeros_like(totalDuplicatePsiEtaIndex)
+
+                    for _ in range(len(totalDuplicatePsiEtaIndex)):
+                        index = totalDuplicatePsiEtaIndex[_]
+                        psiEtaZeta = self.parameterization[index]
+                        psiEta = psiEtaZeta[0:1]
+                        uniquePsiEtaIndex = np.where(uniquePsiEta==psiEta)[0][0]
+
+                        #Set N for each parameter vector index
+                        totalCountsDuplicates[_] = countsPsiEta[uniquePsiEtaIndex]
+
+                        #Set n for each parameter vector index
+                        trueZeta = embeddedParam.calcXYZ2Zeta(self.coordinates[index])[2]
+                        countsDuplicates[_] = 1 + (totalCountsDuplicates[_]-1) * (self.parameterization[_,2] - trueZeta) / (self.parameterization[_,2] - connectingParameterization[2])
+
+                    #Set to initialized so same connection is not repeated
+                    connection['initialized'] = True
+                    connection['connectingParam'].connectionsDict[connectionName]['initialized'] = True
+        pass
 
     #Vectorize based on parameterization and update coordinates
     def updateCoords(self):
@@ -193,6 +284,10 @@ class EmbeddedSurface(object):
             psiEtaZeta = self.parameterization[coordinateIndices]
             coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
+        fig = plt.figure()
+        plotAx = fig.add_subplot(1, 1, 1, projection='3d')
+        plotAx.scatter(coordinates[:,0],coordinates[:,1],coordinates[:,2])
+        plt.show()
 
     def fitParams(self, performFit=False):
         #Group coordinates by parameterization
@@ -221,17 +316,22 @@ class EmbeddedSurface(object):
 
 
 class EmbeddedParameterization(object):
-    #Class for managing single CST parameterization object
+    '''
+    Class for managing single CST parameterization object
+    '''
 
     def __init__(self, param):
         self.param = param
         self.coeffs = self.param.getCoeffs()
         self.dependantCoeffs = OrderedDict()
+        self.connectionsDict = OrderedDict()
         self.masks = self.param.masks
 
+    #This is unnecessary with dafoam DV's
     def addConstraint(self, name, IVEmbeddedParam, IVList, DVList):
-        # IV/DV's are lists of indices for coefficients, check cst3d.py for positions
-        # IV/DV lists must be same length
+        '''Constrain specific coefficients to match another parameterization
+           IV/DV\'s are lists of indices for coefficients, check cst3d.py for positions
+           IV/DV lists must be same length'''
         self.dependantCoeffs[name] = {
             'IVParam' : IVEmbeddedParam,
             'IVList' : np.array(IVList),
@@ -259,14 +359,42 @@ class EmbeddedParameterization(object):
         self.coeffs = self.param.getCoeffs()
         self.removeMasks()
 
+    def calcXYZ2Zeta(self, coordinates):
+        return self.param.calcXYZ2Zeta(coordinates)
+
     def calcParameterization(self, coordinates):
         return self.param.coords2PsiEtaZeta(np.atleast_2d(coordinates))
 
     def calcCoords(self, psiEtaZeta):
-        return self.param.calcCoords(np.atleast_2d(psiEtaZeta))
+        coords = self.param.calcCoords(np.atleast_2d(psiEtaZeta))
+
+        return coords
 
     def calcZeta(self, psiEtaZeta):
-        return self.param.calcZeta(np.atleast_2d(psiEtaZeta))
+        zetaVals = self.param.calcZeta(np.atleast_2d(psiEtaZeta))
+
+        for connectionName in self.connectionsDict:
+            connection = self.connectionsDict[connectionName]
+
+            if connection['type'] in [0]:
+                ##dn = f1-(f1-f2)*(n-1)/(N-1)
+
+                #Find duplicate psi,eta values
+                psiEtaVals = psiEtaZeta[:,0:1]
+                uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
+                duplicatePsiEtaIndex = [i for i in range(len(psiEtaZeta)) if i not in uniquePsiEtaIndices]
+                duplicatePsiEtaZeta = psiEtaZeta[duplicatePsiEtaIndex]
+
+                duplicateZeta1 = zetaVals[duplicatePsiEtaIndex]
+                duplicateZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
+
+                #Scale zeta values
+                for i in duplicatePsiEtaIndex:
+                    psiEta = psiEtaZeta[i,0:1]
+                    uniquePsiEtaIndices = np.where(uniquePsiEta==psiEta)[0][0]
+                    PsiEtaIndices = np.where(psiEtaZeta[:,0:1]==psiEta)[0]
+
+        return zetaVals
 
     def calcdPtdCoef(self, coordinates):
         return self.param.calcJacobian(np.atleast_2d(coordinates))
