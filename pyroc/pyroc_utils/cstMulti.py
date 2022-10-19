@@ -157,6 +157,7 @@ class EmbeddedSurface(object):
     def __init__(self, coordinates, embeddedParams, fit=False, fitIter=1, parameterization=False):
         self.embeddedParams = embeddedParams
         self.N = len(coordinates)
+        self.connectionsDict = OrderedDict()
 
         if parameterization:
             #Read in parameterization, ndarray (N,3)
@@ -192,6 +193,7 @@ class EmbeddedSurface(object):
             for paramName in self.embeddedParams:
                 param = self.embeddedParams[paramName]
                 psiEtaZeta = param.calcParameterization(self.coordinates[_])
+                psiEtaZeta[_,2] = param.calcZeta(psiEtaZeta)
                 computedXYZ = param.calcCoords(psiEtaZeta)
 
                 d2 = np.sum(np.power(self.coordinates[_]-computedXYZ,2))
@@ -214,7 +216,7 @@ class EmbeddedSurface(object):
             for paramName in self.embeddedParams:
                 embeddedParam = self.embeddedParams[paramName]
                 psiEtaZeta = parameterization
-                psiEtaZeta[:,2] = embeddedParam.calcZeta(psiEtaZeta)
+                psiEtaZeta[:,2] = embeddedParam.param.calcZeta(psiEtaZeta)
 
                 d2 = np.sum(np.power(parameterization-psiEtaZeta,2))
                 if d2==closest and paramMap[_-1]==paramName:
@@ -238,39 +240,38 @@ class EmbeddedSurface(object):
                     ##dn = f1-(f1-f2)*(n-1)/(N-1)
                     #Need to calculate N and n map for duplicate indices
 
-                    #Get this parameterization
-                    #thisCoordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
-                    #thisParameterization = self.parameterization[thisCoordinateIndices]
-                    #thisCoordinates = self.coordinates[thisCoordinateIndices]
-                    
-                    #Get connecting parameterization
-                    #connectingCoordinateIndices = np.where(np.array(self.paramMap)==connection['connectingParam'])[0]
-                    #connectingParameterization = self.parameterization[connectingCoordinateIndices]
-
                     #Find duplicate psi,eta values for entire point set
                     psiEtaVals = self.parameterization[:,0:1]
                     uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
                     duplicatePsiEtaIndex = [i for i in range(len(self.parameterization)) if i not in uniquePsiEtaIndices]
 
-                    totalDuplicatePsiEtaIndex = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)][0], duplicatePsiEtaIndex)
-                    totalDuplicatePsiEtaIndex = np.sort(totalDuplicatePsiEtaIndex) #sorted to consistently match up N and n arrays to values
-                    totalCountsDuplicates = np.zeros_like(totalDuplicatePsiEtaIndex)
-                    countsDuplicates = np.zeros_like(totalDuplicatePsiEtaIndex)
+                    totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)][0], duplicatePsiEtaIndex)
+                    totalCountsDuplicates = np.ones_like(self.parameterization, dtype=int)
+                    countsDuplicates = np.ones_like(self.parameterization, dtype=int)
 
-                    for _ in range(len(totalDuplicatePsiEtaIndex)):
-                        index = totalDuplicatePsiEtaIndex[_]
+                    for _ in range(len(totalDuplicatePsiEtaIndices)):
+                        index = totalDuplicatePsiEtaIndices[_]
                         psiEtaZeta = self.parameterization[index]
                         psiEta = psiEtaZeta[0:1]
                         uniquePsiEtaIndex = np.where(uniquePsiEta==psiEta)[0][0]
 
                         #Set N for each parameter vector index
-                        totalCountsDuplicates[_] = countsPsiEta[uniquePsiEtaIndex]
+                        totalCountsDuplicates[index] = countsPsiEta[uniquePsiEtaIndex]
 
                         #Set n for each parameter vector index
-                        trueZeta = embeddedParam.calcXYZ2Zeta(self.coordinates[index])[2]
-                        countsDuplicates[_] = 1 + (totalCountsDuplicates[_]-1) * (self.parameterization[_,2] - trueZeta) / (self.parameterization[_,2] - connectingParameterization[2])
+                        boundZeta1 = embeddedParam.param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
+                        boundZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
+                        countsDuplicates[_] = round(1 + (totalCountsDuplicates[_] - 1) * (boundZeta1 - self.parameterization[_,2]) / (boundZeta1 - boundZeta2))
 
-                    #Set to initialized so same connection is not repeated
+                    #Store needed information
+                    connectingParamName = [name for name in self.embeddedParams if embeddedParam==connection['connectingParam']][0]
+                    self.connectionsDict[connectionName]['type'] = connection['type']
+                    self.connectionsDict[connectionName]['name'] = connectionName
+                    self.connectionsDict[connectionName]['counts_'+paramName] = countsDuplicates
+                    self.connectionsDict[connectionName]['counts_'+connectingParamName] = 1 + totalCountsDuplicates - countsDuplicates
+                    self.connectionsDict[connectionName]['totalCounts'] = totalCountsDuplicates
+
+                    #Set to initialized so same connection is not repeated in different order of parameterization
                     connection['initialized'] = True
                     connection['connectingParam'].connectionsDict[connectionName]['initialized'] = True
         pass
@@ -282,6 +283,7 @@ class EmbeddedSurface(object):
             param = self.embeddedParams[paramName]
             coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
             psiEtaZeta = self.parameterization[coordinateIndices]
+            psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta)
             coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
         fig = plt.figure()
@@ -367,7 +369,6 @@ class EmbeddedParameterization(object):
 
     def calcCoords(self, psiEtaZeta):
         coords = self.param.calcCoords(np.atleast_2d(psiEtaZeta))
-
         return coords
 
     def calcZeta(self, psiEtaZeta):
