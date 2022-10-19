@@ -53,7 +53,7 @@ class CSTMultiParam(object):
             paramCoeffs = self.embeddedParams[paramName].coeffs
             self.coef.append(paramCoeffs)
 
-    def addConnection(self, connectionName, connectingParam1, connectingParam2, connectionType=0):
+    def addConnection(self, connectionName, connectingParam1, connectingParam2, connectionType=0, *args, **kwargs):
         '''
         Add connection between parameterization objects
 
@@ -69,6 +69,8 @@ class CSTMultiParam(object):
         connectionType - str
         Valid options are:
             - 0 (duplicate psi/eta or blunt face, i.e. blunt TE)
+                kwargs
+                - linear=False, if true the n values are integer
         '''
 
         if connectionType in [0]:
@@ -78,11 +80,13 @@ class CSTMultiParam(object):
             connectingParam1.connectionsDict[connectionName] = {
                 'type': 0,
                 'connectingParam': connectingParam2,
+                'linear': kwargs['linear'] if 'linear' in kwargs else False,
                 'initialized': False
             }
             connectingParam2.connectionsDict[connectionName] = {
                 'type': 0,
                 'connectingParam': connectingParam1,
+                'linear': kwargs['linear'] if 'linear' in kwargs else False,
                 'initialized': False
             }
 
@@ -109,13 +113,13 @@ class CSTMultiParam(object):
         for paramName in np.unique(embeddedSurface.paramMap):
             param = self.embeddedParams[paramName]
             coordIndices = np.where(np.array(embeddedSurface.paramMap)==paramName)[0]
-            choppedJac = param.calcdPtdCoef(embeddedSurface.coordinates[coordIndices])
+            choppeddPtdCoef = param.calcdPtdCoef(embeddedSurface.coordinates[coordIndices])
             #Insert into dPtdCoef based on coefficient mapping
             i = 0
             for _ in coordIndices:
                 j = 0
                 for __ in coefMap[paramName]:
-                    dPtdCoef[3*_:3*(_+1), 3*__:3*(__+1)] = choppedJac[3*i:3*(i+1), 3*j:3*(j+1)]
+                    dPtdCoef[3*_:3*(_+1), 3*__:3*(__+1)] = choppeddPtdCoef[3*i:3*(i+1), 3*j:3*(j+1)]
                     j+=1
                 i+=1
 
@@ -158,6 +162,7 @@ class EmbeddedSurface(object):
         self.embeddedParams = embeddedParams
         self.N = len(coordinates)
         self.connectionsDict = OrderedDict()
+        self.dPtdCoef = None
 
         if parameterization:
             #Read in parameterization, ndarray (N,3)
@@ -165,7 +170,10 @@ class EmbeddedSurface(object):
             #Determine which embedded parameterization object each coordinate belongs to
             self.paramMap = self.mapParameterization2Params(self.parameterization) #list
 
+            self.initializeParameterizationConnections()
+
             self.coordinates = self.parameterization
+
             self.updateCoords()
 
         else:
@@ -176,10 +184,10 @@ class EmbeddedSurface(object):
                 #Determine which embedded parameterization object each coordinate belongs to
                 self.paramMap = self.mapCoords2Params() #list
 
-                self.initializeParameterizationConnections()
-
                 #Group coordinates by parameterization and apply fit if True
                 self.parameterization = self.fitParams(fit)
+
+                self.initializeParameterizationConnections()
     
     #TODO Make these more efficient
     def mapCoords2Params(self):
@@ -239,6 +247,7 @@ class EmbeddedSurface(object):
                 if connection['type'] in [0] and not connection['initialized']:
                     ##dn = f1-(f1-f2)*(n-1)/(N-1)
                     #Need to calculate N and n map for duplicate indices
+                    dtypeCounts = int if connection['linear'] else float
 
                     #Find duplicate psi,eta values for entire point set
                     psiEtaVals = self.parameterization[:,0:1]
@@ -246,8 +255,9 @@ class EmbeddedSurface(object):
                     duplicatePsiEtaIndex = [i for i in range(len(self.parameterization)) if i not in uniquePsiEtaIndices]
 
                     totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)][0], duplicatePsiEtaIndex)
-                    totalCountsDuplicates = np.ones_like(self.parameterization, dtype=int)
-                    countsDuplicates = np.ones_like(self.parameterization, dtype=int)
+                    totalCountsDuplicates = np.ones_like(self.parameterization, dtype=dtypeCounts)
+                    countsDuplicates = np.ones_like(self.parameterization, dtype=dtypeCounts)
+                    connectingCountsDuplicates = np.ones_like(self.parameterization, dtype=dtypeCounts)
 
                     for _ in range(len(totalDuplicatePsiEtaIndices)):
                         index = totalDuplicatePsiEtaIndices[_]
@@ -261,20 +271,21 @@ class EmbeddedSurface(object):
                         #Set n for each parameter vector index
                         boundZeta1 = embeddedParam.param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
                         boundZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
-                        countsDuplicates[_] = round(1 + (totalCountsDuplicates[_] - 1) * (boundZeta1 - self.parameterization[_,2]) / (boundZeta1 - boundZeta2))
+                        n1 = 1.0 + (totalCountsDuplicates[_] - 1.0) * (boundZeta1 - self.parameterization[_,2]) / (boundZeta1 - boundZeta2)
+                        n2 = 1.0 + (totalCountsDuplicates[_] - 1.0) * (boundZeta2 - self.parameterization[_,2]) / (boundZeta2 - boundZeta1)
+                        countsDuplicates[_] = round(n1) if connection['linear'] else n1
+                        connectingCountsDuplicates[_] = round(n2) if connection['linear'] else n2
 
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if embeddedParam==connection['connectingParam']][0]
                     self.connectionsDict[connectionName]['type'] = connection['type']
-                    self.connectionsDict[connectionName]['name'] = connectionName
                     self.connectionsDict[connectionName]['counts_'+paramName] = countsDuplicates
-                    self.connectionsDict[connectionName]['counts_'+connectingParamName] = 1 + totalCountsDuplicates - countsDuplicates
+                    self.connectionsDict[connectionName]['counts_'+connectingParamName] = connectingCountsDuplicates
                     self.connectionsDict[connectionName]['totalCounts'] = totalCountsDuplicates
 
                     #Set to initialized so same connection is not repeated in different order of parameterization
                     connection['initialized'] = True
                     connection['connectingParam'].connectionsDict[connectionName]['initialized'] = True
-        pass
 
     #Vectorize based on parameterization and update coordinates
     def updateCoords(self):
@@ -283,7 +294,16 @@ class EmbeddedSurface(object):
             param = self.embeddedParams[paramName]
             coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
             psiEtaZeta = self.parameterization[coordinateIndices]
-            psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta)
+
+            #Get args for various connections
+            connectionArgs = {}
+            for connectionName in self.connectionsDict:
+                connection = self.connectionsDict[connectionName]
+                if connection['type'] in [0] and 'counts_'+paramName in connection:
+                    connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
+                    connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
+
+            psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta, **connectionArgs)
             coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
         fig = plt.figure()
@@ -291,6 +311,7 @@ class EmbeddedSurface(object):
         plotAx.scatter(coordinates[:,0],coordinates[:,1],coordinates[:,2])
         plt.show()
 
+    #Fit parameters for all parameterizations used by this pointset
     def fitParams(self, performFit=False):
         #Group coordinates by parameterization
         paramCoords = {}
@@ -371,7 +392,7 @@ class EmbeddedParameterization(object):
         coords = self.param.calcCoords(np.atleast_2d(psiEtaZeta))
         return coords
 
-    def calcZeta(self, psiEtaZeta, *args):
+    def calcZeta(self, psiEtaZeta, **kwargs):
         zetaVals = self.param.calcZeta(np.atleast_2d(psiEtaZeta))
 
         for connectionName in self.connectionsDict:
@@ -379,8 +400,8 @@ class EmbeddedParameterization(object):
 
             if connection['type'] in [0]:
                 ##dn = f1-(f1-f2)*(n-1)/(N-1)
-
-                countsDuplicates, totalCountsDuplicates = args
+                countsDuplicates = kwargs['countsDuplicates'] if 'countsDuplicates' in kwargs else np.ones_like(zetaVals)
+                totalCountsDuplicates = kwargs['totalCountsDuplicates'] if 'totalCountsDuplicates' in kwargs else np.ones_like(zetaVals)
 
                 #Find duplicate psi,eta values
                 psiEtaVals = psiEtaZeta[:,0:1]
