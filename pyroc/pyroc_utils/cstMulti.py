@@ -371,7 +371,7 @@ class EmbeddedParameterization(object):
         coords = self.param.calcCoords(np.atleast_2d(psiEtaZeta))
         return coords
 
-    def calcZeta(self, psiEtaZeta):
+    def calcZeta(self, psiEtaZeta, *args):
         zetaVals = self.param.calcZeta(np.atleast_2d(psiEtaZeta))
 
         for connectionName in self.connectionsDict:
@@ -379,6 +379,8 @@ class EmbeddedParameterization(object):
 
             if connection['type'] in [0]:
                 ##dn = f1-(f1-f2)*(n-1)/(N-1)
+
+                countsDuplicates, totalCountsDuplicates = args
 
                 #Find duplicate psi,eta values
                 psiEtaVals = psiEtaZeta[:,0:1]
@@ -389,11 +391,10 @@ class EmbeddedParameterization(object):
                 duplicateZeta1 = zetaVals[duplicatePsiEtaIndex]
                 duplicateZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
 
-                #Scale zeta values
-                for i in duplicatePsiEtaIndex:
-                    psiEta = psiEtaZeta[i,0:1]
-                    uniquePsiEtaIndices = np.where(uniquePsiEta==psiEta)[0][0]
-                    PsiEtaIndices = np.where(psiEtaZeta[:,0:1]==psiEta)[0]
+                #Scale zeta values for duplicate psi,eta
+                zetaVals[duplicatePsiEtaIndex] = (duplicateZeta1 - (duplicateZeta1 - duplicateZeta2) *
+                                                  (countsDuplicates[duplicatePsiEtaIndex] - 1) /
+                                                  (totalCountsDuplicates[duplicatePsiEtaIndex] - 1))
 
         return zetaVals
 
