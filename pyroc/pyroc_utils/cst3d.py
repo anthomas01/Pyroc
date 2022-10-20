@@ -292,7 +292,7 @@ class CST3DParam(object):
         psiEtaZeta =  np.vstack([self.calcXYZ2Psi(transSurface),
                                  self.calcXYZ2Eta(transSurface),
                                  self.calcXYZ2Zeta(transSurface)]).T
-        psiEtaZeta[psiEtaZeta[:,0]==0.0] = 1e-8
+        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-8
         return psiEtaZeta
 
     #Set psi/eta values and update zeta
@@ -622,8 +622,13 @@ class CSTAirfoil3D(CST3DParam):
     def calcEta(self, psiEtaZeta):
         return psiEtaZeta[:,1]
 
-    def calcZeta(self, psiEtaZeta):
+    def calcZeta(self, psiEtaZeta, zetaScale=None):
         zetaVals = self.csGeo.calcZeta(psiEtaZeta[:,0])
+
+        #Implement param scale for above level connections
+        if zetaScale is not None:
+            zetaVals = zetaVals * zetaScale
+
         return zetaVals
 
     def calcXZ2Y(self, xVals, zVals):
@@ -644,13 +649,13 @@ class CSTAirfoil3D(CST3DParam):
     #TODO make this more efficient
     #Calculate dXYZdCoeffs Jacobian (Analytical)
     #dXYZdCoeff = dXYZdPsiEtaZeta * dPsiEtaZetadCoeff
-    def calcJacobian(self, surface, h=1e-8):
+    def calcJacobian(self, surface, paramScale=None, h=1e-8):
         nPts = len(surface)
         nCoeffs = len(self.getCoeffs())
         if nCoeffs>0 and nPts>0:
             psiEtaZeta = self.coords2PsiEtaZeta(surface)
             ptsJac = self._calcPtsJacobian(psiEtaZeta, h)
-            paramsJac = self.calcParamsJacobian(psiEtaZeta, h)
+            paramsJac = self.calcParamsJacobian(psiEtaZeta, paramScale, h)
             totalJac = np.zeros((3*nPts, 3*nCoeffs))
             for _ in range(nPts):
                 ptJac = ptsJac[3*_:3*(_+1),:]
@@ -664,8 +669,15 @@ class CSTAirfoil3D(CST3DParam):
         return totalJac
 
     #dPsiEtaZetadParams
-    def calcParamsJacobian(self, psiEtaZeta, h=1e-8):
+    def calcParamsJacobian(self, psiEtaZeta, paramScale=None, h=1e-8):
         paramsJac = super().calcParamsJacobian(psiEtaZeta, h)
+
+        #Implement param scale for above level connections
+        #Param scale must be (N,3) where N is length of paramsJac
+        if paramScale is not None:
+            paramsJac = paramsJac * paramScale
+
+        return paramsJac
 
     #dPsiEtaZetadCsClassCoeffs (Analytical)
     def _calcCsClassJacobian(self, psiEtaZeta, h=1e-8):
