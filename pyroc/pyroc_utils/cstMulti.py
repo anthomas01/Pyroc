@@ -224,10 +224,10 @@ class EmbeddedSurface(object):
                     psiEtaVals = self.parameterization[:,0:2]
                     uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
                     duplicatePsiEtaIndices = [i for i in range(len(self.parameterization)) if i not in uniquePsiEtaIndices]
+                    uniqueDuplicatePsiEta = uniquePsiEta[countsPsiEta>1]
                     totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)[0]], duplicatePsiEtaIndices)
-                    totalCountsDuplicates = np.ones(len(self.parameterization), dtype=dtypeCounts)
+                    totalCountsDuplicates = np.ones(len(self.parameterization), dtype=int)
                     countsDuplicates = np.ones(len(self.parameterization), dtype=dtypeCounts)
-                    connectingCountsDuplicates = np.ones(len(self.parameterization), dtype=dtypeCounts)
 
                     for _ in range(len(totalDuplicatePsiEtaIndices)):
                         index = totalDuplicatePsiEtaIndices[_]
@@ -249,22 +249,31 @@ class EmbeddedSurface(object):
                         boundZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
                         trueZeta = self.parameterization[index,2]
 
+                        #Good starting point for counts duplicates, but can be a little off
                         n1 = 1.0 + (totalCountsDuplicates[index] - 1.0) * (boundZeta1 - trueZeta) / (boundZeta1 - boundZeta2)
-                        n2 = 1.0 + totalCountsDuplicates[index] - n1
 
+                        #Issue with points rounding to wrong place
                         if connection['linear']:
                             countsDuplicates[index] = round(n1)
-                            connectingCountsDuplicates[index] = round(n2)
                         else:
                             countsDuplicates[index] = n1
-                            connectingCountsDuplicates[index] = n2
+
+                    #countsDuplicates
+                    for _ in range(len(uniqueDuplicatePsiEta)):
+                        psiEta = uniqueDuplicatePsiEta[_]
+                        thisPsiIndices = np.where(psiEtaVals[:,0]==psiEta[0])[0]
+                        thisEtaIndices = np.where(psiEtaVals[:,1]==psiEta[1])[0]
+                        thisPsiEtaIndices = np.array([i for i in thisPsiIndices if i in thisEtaIndices])
+
+                        for __ in range(len(thisPsiEtaIndices)):
+
 
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==connection['connectingParam']][0]
                     self.connectionsDict[connectionName] = {
                         'type' : connection['type'],
                         'counts_'+paramName : countsDuplicates,
-                        'counts_'+connectingParamName : connectingCountsDuplicates,
+                        'counts_'+connectingParamName : 1 + totalCountsDuplicates - countsDuplicates,
                         'totalCounts' : totalCountsDuplicates,
                         'initialized' : True
                     }
