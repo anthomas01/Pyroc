@@ -240,24 +240,6 @@ class EmbeddedSurface(object):
                         #Set N for each parameter vector index
                         totalCountsDuplicates[index] = countsPsiEta[uniquePsiEtaIndex]
 
-                    for _ in range(len(duplicatePsiEtaIndices)):
-                        index = duplicatePsiEtaIndices[_]
-                        psiEtaZeta = self.parameterization[index]
-        
-                        #Set n for each parameter vector index
-                        boundZeta1 = embeddedParam.param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
-                        boundZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(psiEtaZeta))[0]
-                        trueZeta = self.parameterization[index,2]
-
-                        #Good starting point for counts duplicates, but can be a little off
-                        n1 = 1.0 + (totalCountsDuplicates[index] - 1.0) * (boundZeta1 - trueZeta) / (boundZeta1 - boundZeta2)
-
-                        #Issue with points rounding to wrong place
-                        if connection['linear']:
-                            countsDuplicates[index] = round(n1)
-                        else:
-                            countsDuplicates[index] = n1
-
                     #countsDuplicates
                     for _ in range(len(uniqueDuplicatePsiEta)):
                         psiEta = uniqueDuplicatePsiEta[_]
@@ -276,11 +258,13 @@ class EmbeddedSurface(object):
                             _boundZeta1 = np.min(psiEtaZeta[:,2])
                             _boundZeta2 = np.max(psiEtaZeta[:,2])
 
+                        n1 = 1.0 + (totalCountsDuplicates[thisPsiEtaIndices] - 1.0) * (_boundZeta1 - psiEtaZeta[:,2]) / (_boundZeta1 - _boundZeta2)
+
                         #Issue with points rounding to wrong place
                         if connection['linear']:
-                            countsDuplicates[index] = round(n1)
+                            countsDuplicates[thisPsiEtaIndices] = np.round(n1, decimals=0)
                         else:
-                            countsDuplicates[index] = n1
+                            countsDuplicates[thisPsiEtaIndices] = n1
 
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==connection['connectingParam']][0]
@@ -307,7 +291,6 @@ class EmbeddedSurface(object):
                 if connection['type'] in [0] and 'counts_'+paramName in connection:
                     connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
                     connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
-            #print(psiEtaZeta)
 
             psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta, **connectionArgs)
             coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
@@ -454,19 +437,20 @@ class EmbeddedParameterization(object):
                 psiEtaVals = psiEtaZeta[:,0:2]
                 uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
                 duplicatePsiEtaIndices = np.array([i for i in range(len(psiEtaZeta)) if i not in uniquePsiEtaIndices])
+                totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)[0]], duplicatePsiEtaIndices)
 
-                if len(duplicatePsiEtaIndices)>0 and np.all(totalCountsDuplicates[duplicatePsiEtaIndices]>1):
-                    duplicatePsiEtaZeta = psiEtaZeta[duplicatePsiEtaIndices]
+                if len(totalDuplicatePsiEtaIndices)>0 and np.all(totalCountsDuplicates[duplicatePsiEtaIndices]>1):
+                    duplicatePsiEtaZeta = psiEtaZeta[totalDuplicatePsiEtaIndices]
                     duplicateZeta1 = self.param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
                     duplicateZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
 
-                    _countsDuplicates = countsDuplicates[duplicatePsiEtaIndices]
-                    _totalCountsDuplicates = totalCountsDuplicates[duplicatePsiEtaIndices]
+                    _countsDuplicates = countsDuplicates[totalDuplicatePsiEtaIndices]
+                    _totalCountsDuplicates = totalCountsDuplicates[totalDuplicatePsiEtaIndices]
 
                     #Scale zeta values for duplicate psi,eta
-                    zetaScale[duplicatePsiEtaIndices] = (duplicateZeta1 - (duplicateZeta1 - duplicateZeta2) *
-                                                        (_countsDuplicates - 1) /
-                                                        (_totalCountsDuplicates - 1)) / duplicateZeta1
+                    zetaScale[totalDuplicatePsiEtaIndices] = (duplicateZeta1 - (duplicateZeta1 - duplicateZeta2) *
+                                                             (_countsDuplicates - 1) /
+                                                             (_totalCountsDuplicates - 1)) / duplicateZeta1
 
                     zetaVals = self.param.calcZeta(np.atleast_2d(psiEtaZeta), zetaScale=zetaScale)
                     psiEtaZeta_ = psiEtaZeta
@@ -494,20 +478,21 @@ class EmbeddedParameterization(object):
                 psiEtaVals = psiEtaZeta[:,0:2]
                 uniquePsiEta, uniquePsiEtaIndices, countsPsiEta = np.unique(psiEtaVals, return_index=True, return_counts=True, axis=0)
                 duplicatePsiEtaIndices = np.array([i for i in range(len(psiEtaZeta)) if i not in uniquePsiEtaIndices])
+                totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)[0]], duplicatePsiEtaIndices)
 
-                if len(duplicatePsiEtaIndices)>0 and np.all(totalCountsDuplicates[duplicatePsiEtaIndices]>1):
-                    duplicatePsiEtaZeta = psiEtaZeta[duplicatePsiEtaIndices]
+                if len(totalDuplicatePsiEtaIndices)>0 and np.all(totalCountsDuplicates[totalDuplicatePsiEtaIndices]>1):
+                    duplicatePsiEtaZeta = psiEtaZeta[totalDuplicatePsiEtaIndices]
                     duplicateJac1 = self.param.calcJacobian(np.atleast_2d(duplicatePsiEtaZeta))[2::3]
                     duplicateJac2 = connection['connectingParam'].param.calcJacobian(np.atleast_2d(duplicatePsiEtaZeta))[2::3]
 
-                    _countsDuplicates = countsDuplicates[duplicatePsiEtaIndices]
-                    _totalCountsDuplicates = totalCountsDuplicates[duplicatePsiEtaIndices]
+                    _countsDuplicates = countsDuplicates[totalDuplicatePsiEtaIndices]
+                    _totalCountsDuplicates = totalCountsDuplicates[totalDuplicatePsiEtaIndices]
 
                     for _ in range(nCoeff):
                         #Scale zeta values for duplicate psi,eta
-                        paramScale[2+3*duplicatePsiEtaIndices,2+3*_] = (duplicateJac1[:,2+3*_] - (duplicateJac1[:,2+3*_] - duplicateJac2[:,2+3*_]) *
-                                                                        (_countsDuplicates - 1) /
-                                                                        (_totalCountsDuplicates - 1)) / duplicateJac1[:,2+3*_]
+                        paramScale[2+3*totalDuplicatePsiEtaIndices,2+3*_] = (duplicateJac1[:,2+3*_] - (duplicateJac1[:,2+3*_] - duplicateJac2[:,2+3*_]) *
+                                                                            (_countsDuplicates - 1) /
+                                                                            (_totalCountsDuplicates - 1)) / duplicateJac1[:,2+3*_]
                 
         dPtdCoef = self.param.calcJacobian(np.atleast_2d(coordinates), paramScale=paramScale)
 
