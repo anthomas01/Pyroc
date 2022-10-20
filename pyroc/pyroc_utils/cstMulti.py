@@ -265,8 +265,22 @@ class EmbeddedSurface(object):
                         thisEtaIndices = np.where(psiEtaVals[:,1]==psiEta[1])[0]
                         thisPsiEtaIndices = np.array([i for i in thisPsiIndices if i in thisEtaIndices])
 
-                        for __ in range(len(thisPsiEtaIndices)):
+                        psiEtaZeta = self.parameterization[thisPsiEtaIndices]
+                        boundZeta1 = embeddedParam.param.calcZeta(np.atleast_2d(psiEtaZeta[0]))[0]
+                        boundZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(psiEtaZeta[0]))[0]
 
+                        if boundZeta1 > boundZeta2:
+                            _boundZeta1 = np.max(psiEtaZeta[:,2])
+                            _boundZeta2 = np.min(psiEtaZeta[:,2])
+                        else:
+                            _boundZeta1 = np.min(psiEtaZeta[:,2])
+                            _boundZeta2 = np.max(psiEtaZeta[:,2])
+
+                        #Issue with points rounding to wrong place
+                        if connection['linear']:
+                            countsDuplicates[index] = round(n1)
+                        else:
+                            countsDuplicates[index] = n1
 
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==connection['connectingParam']][0]
