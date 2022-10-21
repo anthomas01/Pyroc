@@ -4,7 +4,6 @@ from scipy import sparse
 from scipy.spatial import Delaunay
 import numpy as np
 import os
-import matplotlib.pyplot as plt
 
 class CSTMultiParam(object):
     #Class for managing multiple CST geometry objects
@@ -295,10 +294,6 @@ class EmbeddedSurface(object):
             psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta, **connectionArgs)
             coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
         self.coordinates = coordinates
-        fig = plt.figure()
-        plotAx = fig.add_subplot(1, 1, 1, projection='3d')
-        plotAx.scatter(coordinates[:,0],coordinates[:,1],coordinates[:,2])
-        plt.show()
 
     #TODO Make this more efficient
     def updatedPtdCoef(self):
@@ -444,13 +439,19 @@ class EmbeddedParameterization(object):
                     duplicateZeta1 = self.param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
                     duplicateZeta2 = connection['connectingParam'].param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta))
 
-                    _countsDuplicates = countsDuplicates[totalDuplicatePsiEtaIndices]
-                    _totalCountsDuplicates = totalCountsDuplicates[totalDuplicatePsiEtaIndices]
+                    zeroTotalDuplicateIndices = totalDuplicatePsiEtaIndices[duplicateZeta1==0]
+                    nonzeroTotalDuplicateIndices = totalDuplicatePsiEtaIndices[duplicateZeta1!=0]
+
+                    nonzeroDuplicateZeta1 = duplicateZeta1[duplicateZeta1!=0]
+                    nonzeroDuplicateZeta2 = duplicateZeta2[duplicateZeta1!=0]
+                    _countsDuplicates = countsDuplicates[nonzeroTotalDuplicateIndices]
+                    _totalCountsDuplicates = totalCountsDuplicates[nonzeroTotalDuplicateIndices]
 
                     #Scale zeta values for duplicate psi,eta
-                    zetaScale[totalDuplicatePsiEtaIndices] = (duplicateZeta1 - (duplicateZeta1 - duplicateZeta2) *
-                                                             (_countsDuplicates - 1) /
-                                                             (_totalCountsDuplicates - 1)) / duplicateZeta1
+                    zetaScale[zeroTotalDuplicateIndices] = np.zeros_like(zeroTotalDuplicateIndices)
+                    zetaScale[nonzeroTotalDuplicateIndices] = (nonzeroDuplicateZeta1 - (nonzeroDuplicateZeta1 -
+                                                               nonzeroDuplicateZeta2) * (_countsDuplicates - 1) /
+                                                              (_totalCountsDuplicates - 1)) / nonzeroDuplicateZeta1
 
                     zetaVals = self.param.calcZeta(np.atleast_2d(psiEtaZeta), zetaScale=zetaScale)
                     psiEtaZeta_ = psiEtaZeta
@@ -481,18 +482,26 @@ class EmbeddedParameterization(object):
                 totalDuplicatePsiEtaIndices = np.append(uniquePsiEtaIndices[np.where(countsPsiEta>1)[0]], duplicatePsiEtaIndices)
 
                 if len(totalDuplicatePsiEtaIndices)>0 and np.all(totalCountsDuplicates[totalDuplicatePsiEtaIndices]>1):
-                    duplicatePsiEtaZeta = psiEtaZeta[totalDuplicatePsiEtaIndices]
-                    duplicateJac1 = self.param.calcJacobian(np.atleast_2d(duplicatePsiEtaZeta))[2::3]
-                    duplicateJac2 = connection['connectingParam'].param.calcJacobian(np.atleast_2d(duplicatePsiEtaZeta))[2::3]
+                    jac1 = self.param.calcJacobian(np.atleast_2d(psiEtaZeta))
+                    jac2 = connection['connectingParam'].param.calcJacobian(np.atleast_2d(psiEtaZeta))
 
-                    _countsDuplicates = countsDuplicates[totalDuplicatePsiEtaIndices]
-                    _totalCountsDuplicates = totalCountsDuplicates[totalDuplicatePsiEtaIndices]
+                    duplicatedZeta1 = jac1[2+3*totalDuplicatePsiEtaIndices, 2::3]
+                    duplicatedZeta2 = jac2[2+3*totalDuplicatePsiEtaIndices, 2::3]
 
                     for _ in range(nCoeff):
+                        zeroTotalDuplicateIndices = totalDuplicatePsiEtaIndices[duplicatedZeta1[:,_]==0]
+                        nonzeroTotalDuplicateIndices = totalDuplicatePsiEtaIndices[duplicatedZeta1[:,_]!=0]
+
+                        nonzeroDuplicatedZeta1 = duplicatedZeta1[duplicatedZeta1[:,_]!=0,_]
+                        nonzeroDuplicatedZeta2 = duplicatedZeta2[duplicatedZeta1[:,_]!=0,_]
+                        _countsDuplicates = countsDuplicates[nonzeroTotalDuplicateIndices]
+                        _totalCountsDuplicates = totalCountsDuplicates[nonzeroTotalDuplicateIndices]
+
                         #Scale zeta values for duplicate psi,eta
-                        paramScale[2+3*totalDuplicatePsiEtaIndices,2+3*_] = (duplicateJac1[:,2+3*_] - (duplicateJac1[:,2+3*_] - duplicateJac2[:,2+3*_]) *
-                                                                            (_countsDuplicates - 1) /
-                                                                            (_totalCountsDuplicates - 1)) / duplicateJac1[:,2+3*_]
+                        paramScale[2+3*zeroTotalDuplicateIndices,2+3*_] = np.zeros_like(zeroTotalDuplicateIndices)
+                        paramScale[2+3*nonzeroTotalDuplicateIndices,2+3*_] = (nonzeroDuplicatedZeta1 - (nonzeroDuplicatedZeta1 -
+                                                                               nonzeroDuplicatedZeta2) * (_countsDuplicates - 1) /
+                                                                              (_totalCountsDuplicates - 1)) / nonzeroDuplicatedZeta1
                 
         dPtdCoef = self.param.calcJacobian(np.atleast_2d(coordinates), paramScale=paramScale)
 

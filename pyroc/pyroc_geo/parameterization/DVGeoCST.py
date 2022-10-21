@@ -109,7 +109,7 @@ class DVGeometryCST(DVGeometry):
 
         nVal = sum([len(coefDict[_]) for _ in coefDict])
         values = np.zeros(nVal)
-        ind = np.zeros((nVal, 2), dtype=int)
+        ind = np.zeros((nVal, 2), dtype=int) # paramNameIndex, index
         paramNames = list(self.param.embeddedParams.keys())
 
         i=0
@@ -184,10 +184,12 @@ class DVGeometryCST(DVGeometry):
 
         # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
         if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
-            dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocoo()
+            dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocsr()
 
             # Do Sparse Mat-Mat multiplication and resort indices
             if J_temp is not None:
+                print(J_temp.get_shape())
+                print(dPtdCoef.get_shape())
                 self.JT[ptSetName] = (J_temp.T * dPtdCoef.T).tocsr()
                 self.JT[ptSetName].sort_indices()
         else:
@@ -199,7 +201,7 @@ class DVGeometryCST(DVGeometry):
         if self.finalized:
             return
         self.finalized = True
-        self.nCoefFull = len(self.param.coef)
+        self.nCoefFull = sum([len(_) for _ in self.param.coef])
 
     def localDVJacobian(self, config=None):
         """
@@ -213,7 +215,7 @@ class DVGeometryCST(DVGeometry):
         self.getDVOffsets()
 
         if nDV != 0:
-            Jacobian = sparse.lil_matrix((self.nCoefFull * 3, self.nDV_T))
+            Jacobian = sparse.lil_matrix((3 * self.nCoefFull, self.nDV_T))
 
             iDVLocal = self.nDVL_count
             for key in self.DV_listLocal:
@@ -226,9 +228,12 @@ class DVGeometryCST(DVGeometry):
                     self.DV_listLocal[key](self.param.coef, config)
                     nVal = self.DV_listLocal[key].nVal
                     for j in range(nVal):
-                        pt_dv = self.DV_listLocal[key].coefList[j]
-                        irow = pt_dv[0] * 3 + pt_dv[1]
+                        pt_dv = self.DV_listLocal[key].ind[j] # [paramNameIndex, index]
+                        shift = sum([len(self.param.coef[_]) for _ in range(pt_dv[0])])
+                        irow = 3 * (pt_dv[0] * shift + pt_dv[1])
                         Jacobian[irow, iDVLocal] = 1.0
+                        Jacobian[irow+1, iDVLocal] = 1.0
+                        Jacobian[irow+2, iDVLocal] = 1.0
                         iDVLocal += 1
 
                 else:

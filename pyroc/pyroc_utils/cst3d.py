@@ -292,7 +292,6 @@ class CST3DParam(object):
         psiEtaZeta =  np.vstack([self.calcXYZ2Psi(transSurface),
                                  self.calcXYZ2Eta(transSurface),
                                  self.calcXYZ2Zeta(transSurface)]).T
-        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-8
         return psiEtaZeta
 
     #Set psi/eta values and update zeta
@@ -630,6 +629,12 @@ class CSTAirfoil3D(CST3DParam):
             zetaVals = zetaVals * zetaScale
 
         return zetaVals
+
+    #Calculate psi,eta,zeta from surface
+    def coords2PsiEtaZeta(self, surface):
+        psiEtaZeta =  super().coords2PsiEtaZeta(surface)
+        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-12
+        return psiEtaZeta
 
     def calcXZ2Y(self, xVals, zVals):
         return 0
