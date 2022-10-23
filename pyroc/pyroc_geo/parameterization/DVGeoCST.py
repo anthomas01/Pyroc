@@ -34,7 +34,7 @@ class DVGeometryCST(DVGeometry):
             exactly what they are doing.
         """
 
-        # compNames is only needed for DVGeometryMulti, so remove it if passed
+        # DVCon artifact?
         kwargs.pop("compNames", None)
 
         self.ptSetNames.append(ptName)
@@ -170,32 +170,36 @@ class DVGeometryCST(DVGeometry):
     def computeTotalJacobian(self, ptSetName, config=None):
         """Return the total point jacobian in CSR format since we
         need this for TACS"""
+        self.computeTotalJacobianFD(ptSetName, config=config)
     
-        # Finalize the object, if not done yet
-        self.finalize()
-        self.curPtSet = ptSetName
+        # # Finalize the object, if not done yet
+        # self.finalize()
+        # self.curPtSet = ptSetName
 
-        if self.JT[ptSetName] is not None:
-            return
+        # if self.JT[ptSetName] is not None:
+        #     return
 
-        # compute the derivatives of the coefficients of this level wrt all of the design
-        # variables at this level and all levels above
-        J_temp = self.computeDVJacobian(config=config)
+        # # compute the derivatives of the coefficients of this level wrt all of the design
+        # # variables at this level and all levels above
+        # J_temp = self.computeDVJacobian(config=config)
 
-        # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
-        if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
-            dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocsr()
+        # # Update dPtdCoef
+        # self.param.calcdPtdCoef(ptSetName)
 
-            # Do Sparse Mat-Mat multiplication and resort indices
-            if J_temp is not None:
-                print(J_temp.get_shape())
-                print(dPtdCoef.get_shape())
-                self.JT[ptSetName] = (J_temp.T * dPtdCoef.T).tocsr()
-                self.JT[ptSetName].sort_indices()
-        else:
-            self.JT[ptSetName] = None
+        # # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
+        # if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
+        #     dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocsr()
 
-    #Internal Functions
+        #     # Do Sparse Mat-Mat multiplication and resort indices
+        #     if J_temp is not None:
+        #         print(J_temp.get_shape())
+        #         print(dPtdCoef.get_shape())
+        #         self.JT[ptSetName] = (J_temp.T * dPtdCoef.T).tocsr()
+        #         self.JT[ptSetName].sort_indices()
+        # else:
+        #     self.JT[ptSetName] = None
+
+    ### Internal Functions
 
     def finalize(self):
         if self.finalized:

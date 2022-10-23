@@ -1,3 +1,4 @@
+import copy
 from ...pyroc_utils import *
 from pyspline import *
 from collections import OrderedDict
@@ -27,7 +28,8 @@ class DVGeometry(object):
         self.nDV_T = None  # total number of design variables
         self.nDVG_T = None
         self.nDVL_T = None
-
+        self.nDVG_count = 0  # number of global   (G)  variables
+        self.nDVL_count = 0  # number of local    (L)  variables
         self.useComposite = False
 
     def addPointSet(self, points, ptName, origConfig=True):
@@ -169,7 +171,7 @@ class DVGeometry(object):
         for key in dvDict:
             #Global DVs
             if key in self.DV_listGlobal:
-                vals_to_set = np.atleast_1d(dvDict[key]).astype("D")
+                vals_to_set = np.atleast_1d(dvDict[key]).astype("d")
                 if len(vals_to_set) != self.DV_listGlobal[key].nVal:
                     raise Exception(f"Incorrect number of design variables for DV: {key}.\n" + 
                                     f"Expecting {self.DV_listGlobal[key].nVal} variables but received {len(vals_to_set)}")
@@ -177,7 +179,7 @@ class DVGeometry(object):
 
             #Local DVs
             if key in self.DV_listLocal:
-                vals_to_set = np.atleast_1d(dvDict[key]).astype("D")
+                vals_to_set = np.atleast_1d(dvDict[key]).astype("d")
                 if len(vals_to_set) != self.DV_listLocal[key].nVal:
                     raise Exception(f"Incorrect number of design variables for DV: {key}.\n" + 
                                     f"Expecting {self.DV_listLocal[key].nVal} variables but received {len(vals_to_set)}")
@@ -532,7 +534,7 @@ class DVGeometry(object):
     def computeTotalJacobian(self, ptSetName, config=None):
         """Return the total point jacobian in CSR format since we
         need this for TACS"""
-        pass
+        self.computeTotalJacobianFD(ptSetName, config=config)
 
     def addVariablesPyOpt(self, optProb, globalVars=True, localVars=True, ignoreVars=None, freezeVars=None):
         """
@@ -673,7 +675,7 @@ class DVGeometry(object):
     def localDVJacobian(self, config=None):
         pass
 
-    def computeTotalJacobianFD(self, ptSetName, config=None):
+    def computeTotalJacobianFD(self, ptSetName, config=None, h=1e-6):
         """This function takes the total derivative of an objective,
         I, with respect the points controlled on this processor using FD.
         We take the transpose prodducts and mpi_allreduce them to get the
@@ -693,8 +695,6 @@ class DVGeometry(object):
             self.nPts[ptSetName] = len(coords0.flatten())
 
         DVGlobalCount, DVLocalCount = self.getDVOffsets()
-
-        h = 1e-6
 
         self.JT[ptSetName] = np.zeros([self.nDV_T, self.nPts[ptSetName]])
 
@@ -740,3 +740,79 @@ class DVGeometry(object):
             print("%s" % (self.DV_listLocal[dl].name))
             for i in range(self.DV_listLocal[dl].nVal):
                 print("%20.15f" % (self.DV_listLocal[dl].value[i]))
+
+    def checkDerivatives(self, ptSetName, h=1e-6):
+        """
+        Run a brute force FD check on ALL design variables
+
+        Parameters
+        ----------
+        ptSetName : str
+            name of the point set to check
+        """
+
+        print("Computing Analytic Jacobian...")
+        self.zeroJacobians(ptSetName)
+        self.computeTotalJacobian(ptSetName)
+
+        Jac = copy.deepcopy(self.JT[ptSetName])
+
+        # Global Variables
+        print("========================================")
+        print("             Global Variables           ")
+        print("========================================")
+
+        coords0 = self.update(ptSetName).flatten()
+
+        # figure out the split between local and global Variables
+        DVCountGlob, DVCountLoc = self.getDVOffsets()
+
+        for key in self.DV_listGlobal:
+            for j in range(self.DV_listGlobal[key].nVal):
+
+                print("========================================")
+                print("      GlobalVar(%s), Value(%d)" % (key, j))
+                print("========================================")
+
+                refVal = self.DV_listGlobal[key].value[j]
+
+                self.DV_listGlobal[key].value[j] += h
+
+                coordsph = self.update(ptSetName).flatten()
+
+                deriv = (coordsph - coords0) / h
+
+                for ii in range(len(deriv)):
+
+                    relErr = (deriv[ii] - Jac[DVCountGlob, ii]) / (1e-16 + Jac[DVCountGlob, ii])
+                    absErr = deriv[ii] - Jac[DVCountGlob, ii]
+
+                    if abs(relErr) > h * 10 and abs(absErr) > h * 10:
+                        print(ii, deriv[ii], Jac[DVCountGlob, ii], relErr, absErr)
+
+                DVCountGlob += 1
+                self.DV_listGlobal[key].value[j] = refVal
+
+        for key in self.DV_listLocal:
+            for j in range(self.DV_listLocal[key].nVal):
+
+                print("========================================")
+                print("      LocalVar(%s), Value(%d)           " % (key, j))
+                print("========================================")
+
+                refVal = self.DV_listLocal[key].value[j]
+
+                self.DV_listLocal[key].value[j] += h
+                coordsph = self.update(ptSetName).flatten()
+
+                deriv = (coordsph - coords0) / h
+
+                for ii in range(len(deriv)):
+                    relErr = (deriv[ii] - Jac[DVCountLoc, ii]) / (1e-16 + Jac[DVCountLoc, ii])
+                    absErr = deriv[ii] - Jac[DVCountLoc, ii]
+
+                    if abs(relErr) > h and abs(absErr) > h:
+                        print(ii, deriv[ii], Jac[DVCountLoc, ii], relErr, absErr)
+
+                DVCountLoc += 1
+                self.DV_listLocal[key].value[j] = refVal

@@ -18,7 +18,7 @@ class TkDesignVar():
 class GlobalDesignVar():
     def __init__(self, name, value, function, lower=None, upper=None, scale=1.0, config=None):
         self.name = name
-        self.value = np.atleast_1d(np.array(value)).astype("D")
+        self.value = np.atleast_1d(np.array(value)).astype("d")
         self.function = function
         self.lower = lower
         self.upper = upper
