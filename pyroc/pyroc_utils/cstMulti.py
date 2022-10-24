@@ -95,9 +95,37 @@ class CSTMultiParam(object):
         embeddedSurface = self.embeddedSurfaces[ptSetName]
         embeddedSurface.updatedPtdCoef()
 
-    def plotMulti(self, ax):
-        psiVals = np.linspace(0, 1, 25)
-        etaVals = np.linspace(0, 1, 10)
+    def outputCoordinates(self, file, nx=100, ny=1):
+        '''
+        Print nx*ny coordinates for each embeddedParam, evenly spaced across psi,eta
+
+        Parameters:
+
+        file - str
+            file path
+        nx - int
+            Number of values in psi direction
+        ny - int
+            Number of values in eta direction
+        '''
+        psiVals = np.linspace(0.0, 1.0, nx)
+        etaVals = np.linspace(0.0, 1.0, ny)
+        psi, eta = np.meshgrid(psiVals, etaVals)
+        psi, eta = psi.flatten(), eta.flatten()
+        psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
+
+        f = open(file, 'w')
+        for paramName in self.embeddedParams:
+            param = self.embeddedParams[paramName]
+            param.param.setPsiEtaZeta(psiEtaZeta.copy())
+            coords = param.param.updateCoords()
+            for _ in range(len(coords)):
+                f.write(' '.join(coords[_,:]) + '\n')
+        f.close()
+
+    def plotMulti(self, ax, nx=100, ny=10):
+        psiVals = np.linspace(0, 1, nx)
+        etaVals = np.linspace(0, 1, ny)
         psi, eta = np.meshgrid(psiVals, etaVals)
         psi, eta = psi.flatten(), eta.flatten()
         psiEtaZeta = np.vstack([psi, eta, np.zeros_like(psi)]).T
