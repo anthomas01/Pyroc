@@ -56,10 +56,6 @@ class DVGeometryCST(DVGeometry):
             self.param.coef = tmpCoef
             self.param.updateCoeffs()
 
-        # Update design variables with fit coefficients
-        #for key in self.DV_listLocal:
-        #    self.DV_listLocal[key].apply(self.param.coef)
-
         self.param.calcdPtdCoef(ptName)
         self.updated[ptName] = False
 
