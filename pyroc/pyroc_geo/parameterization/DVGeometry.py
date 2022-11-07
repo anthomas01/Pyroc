@@ -726,7 +726,7 @@ class DVGeometry(object):
 
                 DVLocalCount += 1
                 self.DV_listLocal[key].value[j] = refVal
-
+    
     def printDesignVariables(self):
         """
         Print a formatted list of design variables to the screen

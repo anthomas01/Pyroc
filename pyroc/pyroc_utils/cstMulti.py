@@ -18,8 +18,9 @@ class CSTMultiParam(object):
 
     def attachPoints(self, coordinates, ptSetName, embeddedParams=None, parameterization=False):
         #Project points to surface/CST geom object if some were passed in
-        embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
-        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, self.fit, parameterization=parameterization)
+        if coordinates is not None:
+            embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
+            self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, embeddedParams, self.fit, parameterization=parameterization)
 
     def attachParameterization(self, parameterization, ptSetName, embeddedParams=None):
         #Project points to surface/CST geom object if some were passed in

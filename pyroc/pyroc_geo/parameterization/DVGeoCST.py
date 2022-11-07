@@ -41,7 +41,7 @@ class DVGeometryCST(DVGeometry):
         self.zeroJacobians([ptName])
         self.nPts[ptName] = None
 
-        points = np.array(points).real.astype("d")
+        points = np.array(points).real.astype('d')
         self.points[ptName] = points
 
         # Ensure we project into the undeformed geometry

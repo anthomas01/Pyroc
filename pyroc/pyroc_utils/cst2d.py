@@ -277,7 +277,6 @@ class CST2DParam(object):
     def _calcOffsetJacobian(self, psiVals, h=1e-8):
         offsetJac = np.zeros((len(psiVals),1))
         offsetJac[:,0] = psiVals/self.refLen
-
         return offsetJac
 
 

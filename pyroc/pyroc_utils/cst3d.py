@@ -677,7 +677,6 @@ class CSTAirfoil3D(CST3DParam):
     def calcParamsJacobian(self, psiEtaZeta, paramScale=None, h=1e-8):
         paramsJac = super().calcParamsJacobian(psiEtaZeta, h)
 
-        #Implement param scale for above level connections
         #Param scale must be (N,3) where N is length of paramsJac
         if paramScale is not None:
             paramsJac = paramsJac * paramScale
@@ -709,6 +708,7 @@ class CSTAirfoil3D(CST3DParam):
         nCoeffs = len(self.chordCoeffs)
         if nCoeffs>0:
             refChordJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            refChordJac[2::3, 2::3] = -self.shapeOffsets[0]*np.power(self.refLen(psiEtaZeta,self.chordCoeffs),-2.0)
         else:
             refChordJac = None
         return refChordJac
