@@ -442,14 +442,14 @@ class CST3DParam(object):
         nCoeffs = len(coeffs)
         if nCoeffs>0 and len(surface)>0:
             psiEtaZeta = self.coords2PsiEtaZeta(surface)
-            totalJac = np.zeros((len(surface.flatten()), 3*nCoeffs))
+            totalJac = np.zeros((len(surface.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 coeffs[_] += h
                 self.updateCoeffs(coeffs)
                 psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
                 surfaceH = self.calcCoords(psiEtaZeta)
                 for __ in range(3):
-                    totalJac[__::3,3*_+__] = (surfaceH[:,__]-surface[:,__])/h
+                    totalJac[__::3,_] = (surfaceH[:,__]-surface[:,__])/h
                 coeffs[_] -= h
                 self.updateCoeffs(coeffs)
         else:
@@ -487,12 +487,12 @@ class CST3DParam(object):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.csClassCoeffs)
         if nCoeffs>0:
-            csClassJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            csClassJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.csClassCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    csClassJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    csClassJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.csClassCoeffs[_] -= h
         else:
             csClassJac = None
@@ -503,12 +503,12 @@ class CST3DParam(object):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.csModCoeffs)
         if nCoeffs>0:
-            csModJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            csModJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.csModCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    csModJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    csModJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.csModCoeffs[_] -= h
         else:
             csModJac = None
@@ -519,12 +519,12 @@ class CST3DParam(object):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.spanClassCoeffs)
         if nCoeffs>0:
-            spanClassJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            spanClassJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.spanClassCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    spanClassJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    spanClassJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.spanClassCoeffs[_] -= h
         else:
             spanClassJac = None
@@ -535,12 +535,12 @@ class CST3DParam(object):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.spanModCoeffs)
         if nCoeffs>0:
-            spanModJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            spanModJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.spanModCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    spanModJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    spanModJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.spanModCoeffs[_] -= h
         else:
             spanModJac = None
@@ -551,46 +551,46 @@ class CST3DParam(object):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.shapeCoeffs)
         if nCoeffs>0:
-            shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            shapeJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.shapeCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    shapeJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    shapeJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.shapeCoeffs[_] -= h
         else:
             shapeJac = None
         return shapeJac
 
     #dPsiEtaZetadRefChordCoeffs (FD)
-    # - Although default implementation has no dependency for PEZ, we dont know calcZeta implementation here
+    # - Although default implementation has no dependency for psi or eta, we dont know calcZeta implementation here
     def _calcRefChordJacobian(self, psiEtaZeta, h=1e-8):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.chordCoeffs)
         if nCoeffs>0:
-            refChordJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            refChordJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.chordCoeffs[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    refChordJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    refChordJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.chordCoeffs[_] -= h
         else:
             refChordJac = None
         return refChordJac
 
     #dPsiEtaZetadShapeOffsetCoeffs (FD)
-    # - Although default implementation has no dependency for PEZ, we dont know calcZeta implementation here
+    # - Although default implementation has no dependency for psi or eta, we dont know calcZeta implementation here
     def _calcShapeOffsetJacobian(self, psiEtaZeta, h=1e-8):
         surface = self.calcCoords(psiEtaZeta)
         nCoeffs = len(self.shapeOffsets)
         if nCoeffs>0:
-            shapeOffsetJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            shapeOffsetJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
             for _ in range(nCoeffs):
                 self.shapeOffsets[_] += h
                 psiEtaZetaH = self.coords2PsiEtaZeta(surface)
                 for __ in range(3):
-                    shapeOffsetJac[__::3,3*_+__] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
+                    shapeOffsetJac[__::3,_] = (psiEtaZetaH[:,__]-psiEtaZeta[:,__])/h
                 self.shapeOffsets[_] -= h
         else:
             shapeOffsetJac = None
@@ -668,7 +668,6 @@ class CSTAirfoil3D(CST3DParam):
                     paramJac = paramsJac[3*_:3*(_+1), 3*__:3*(__+1)]
                     dXYZdCoeffVec = ptJac @ np.diagonal(paramJac)
                     totalJac[3*_:3*(_+1), 3*__:3*(__+1)] = np.diag(dXYZdCoeffVec)
-
         else:
             totalJac = None
         return totalJac
@@ -676,20 +675,18 @@ class CSTAirfoil3D(CST3DParam):
     #dPsiEtaZetadParams
     def calcParamsJacobian(self, psiEtaZeta, paramScale=None, h=1e-8):
         paramsJac = super().calcParamsJacobian(psiEtaZeta, h)
-
         #Implement param scale for above level connections
         #Param scale must be (N,3) where N is length of paramsJac
         if paramScale is not None:
             paramsJac = paramsJac * paramScale
-
         return paramsJac
 
     #dPsiEtaZetadCsClassCoeffs (Analytical)
     def _calcCsClassJacobian(self, psiEtaZeta, h=1e-8):
         nCoeffs = len(self.csClassCoeffs)
         if nCoeffs>0:
-            csClassJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            csClassJac[2::3, 2::3] = self.csGeo._calcClassJacobian(psiEtaZeta[:,0], h)
+            csClassJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
+            csClassJac[2::3, :] = self.csGeo._calcClassJacobian(psiEtaZeta[:,0], h)
         else:
             csClassJac = None
         return csClassJac
@@ -698,8 +695,8 @@ class CSTAirfoil3D(CST3DParam):
     def _calcShapeJacobian(self, psiEtaZeta, h=1e-8):
         nCoeffs = len(self.shapeCoeffs)
         if nCoeffs>0:
-            shapeJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            shapeJac[2::3, 2::3] = self.csGeo._calcShapeJacobian(psiEtaZeta[:,0], h)
+            shapeJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
+            shapeJac[2::3, :] = self.csGeo._calcShapeJacobian(psiEtaZeta[:,0], h)
         else:
             shapeJac = None
         return shapeJac
@@ -708,7 +705,8 @@ class CSTAirfoil3D(CST3DParam):
     def _calcRefChordJacobian(self, psiEtaZeta, h=1e-8):
         nCoeffs = len(self.chordCoeffs)
         if nCoeffs>0:
-            refChordJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
+            refChordJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
+            refChordJac[2::3, :] = -self.shapeOffsets[0]*psiEtaZeta[:,0]*np.power(self.chordCoeffs[0],-2.0)
         else:
             refChordJac = None
         return refChordJac
@@ -717,8 +715,8 @@ class CSTAirfoil3D(CST3DParam):
     def _calcShapeOffsetJacobian(self, psiEtaZeta, h=1e-8):
         nCoeffs = len(self.shapeOffsets)
         if nCoeffs>0:
-            shapeOffsetJac = np.zeros((len(psiEtaZeta.flatten()), 3*nCoeffs))
-            shapeOffsetJac[2::3, 2::3] = self.csGeo._calcOffsetJacobian(psiEtaZeta[:,0], h)
+            shapeOffsetJac = np.zeros((len(psiEtaZeta.flatten()), nCoeffs))
+            shapeOffsetJac[2::3, :] = self.csGeo._calcOffsetJacobian(psiEtaZeta[:,0], h)
         else:
             shapeOffsetJac = None
         return shapeOffsetJac

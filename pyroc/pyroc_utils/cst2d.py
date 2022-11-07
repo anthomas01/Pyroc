@@ -268,7 +268,6 @@ class CST2DParam(object):
             shapeJac = bernstein1DJacobian(psiVals, n, h)
             for _ in range(n+1):
                 shapeJac[:,_] = shapeJac[:,_] * self.classFunc(psiVals,self.classCoeffs)
-
         else:
             shapeJac = None
         return shapeJac
@@ -277,7 +276,6 @@ class CST2DParam(object):
     def _calcOffsetJacobian(self, psiVals, h=1e-8):
         offsetJac = np.zeros((len(psiVals),1))
         offsetJac[:,0] = psiVals/self.refLen
-
         return offsetJac
 
 
@@ -343,8 +341,7 @@ class CSTAirfoil2D(CST2DParam):
     #dZetadClassCoeff - analytic, class func is known
     def _calcClassJacobian(self, psiVals, h=1e-8):
         n1,n2 = self.classCoeffs
-        dZetadN1 = n1*np.power(psiVals,n1-1)*np.power(1-psiVals,n2)*self.shapeFunc(psiVals,self.shapeCoeffs)
-        dZetadN2 = -n2*np.power(psiVals,n1)*np.power(1-psiVals,n2-1)*self.shapeFunc(psiVals,self.shapeCoeffs)
+        dZetadN1 = np.log(psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
+        dZetadN2 = np.log(1-psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadClass = np.vstack([dZetadN1,dZetadN2]).T
-
         return dZetadClass
