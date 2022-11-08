@@ -288,7 +288,7 @@ class EmbeddedSurface(object):
 
                         n1 = 1.0 + (totalCountsDuplicates[thisPsiEtaIndices] - 1.0) * (_boundZeta1 - psiEtaZeta[:,2]) / (_boundZeta1 - _boundZeta2)
 
-                        #Issue with points rounding to wrong place
+                        #Issue with points rounding to wrong place in linear?
                         if connection['linear']:
                             countsDuplicates[thisPsiEtaIndices] = np.round(n1, decimals=0)
                         else:
@@ -338,13 +338,13 @@ class EmbeddedSurface(object):
             nCoef += len(paramCoeffs)
 
         #size of dPtdCoef will be 3*Npts x 3*Ncoef
-        dPtdCoef = np.zeros((3*nPts, 3*nCoef))
+        dPtdCoef = np.zeros((3*nPts, nCoef))
 
         for paramName in np.unique(self.paramMap):
             param = self.embeddedParams[paramName]
             coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
 
-                        #Get args for various connections
+            #Get args for various connections
             connectionArgs = {}
             for connectionName in self.connectionsDict:
                 connection = self.connectionsDict[connectionName]
