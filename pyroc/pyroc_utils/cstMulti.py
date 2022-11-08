@@ -358,7 +358,7 @@ class EmbeddedSurface(object):
             for _ in coordinateIndices:
                 j = 0
                 for __ in coefMap[paramName]:
-                    dPtdCoef[3*_:3*(_+1), 3*__:3*(__+1)] = choppeddPtdCoef[3*i:3*(i+1), 3*j:3*(j+1)]
+                    dPtdCoef[3*_:3*(_+1), __] = choppeddPtdCoef[3*i:3*(i+1), j]
                     j+=1
                 i+=1
 
@@ -492,7 +492,7 @@ class EmbeddedParameterization(object):
 
     def calcdPtdCoef(self, coordinates, **kwargs):
         nCoeff = len(self.param.getCoeffs())
-        paramScale = np.hstack([np.vstack([np.eye(3) for _ in range(len(coordinates))]) for _ in range(nCoeff)])
+        paramScale = np.ones((len(coordinates.flatten()),nCoeff))
 
         for connectionName in self.connectionsDict:
             connection = self.connectionsDict[connectionName]
@@ -514,8 +514,8 @@ class EmbeddedParameterization(object):
                     jac1 = self.param.calcJacobian(np.atleast_2d(psiEtaZeta))
                     jac2 = connection['connectingParam'].param.calcJacobian(np.atleast_2d(psiEtaZeta))
 
-                    duplicatedZeta1 = jac1[2+3*totalDuplicatePsiEtaIndices, 2::3]
-                    duplicatedZeta2 = jac2[2+3*totalDuplicatePsiEtaIndices, 2::3]
+                    duplicatedZeta1 = jac1[2+3*totalDuplicatePsiEtaIndices,:]
+                    duplicatedZeta2 = jac2[2+3*totalDuplicatePsiEtaIndices,:]
 
                     for _ in range(nCoeff):
                         zeroTotalDuplicateIndices = totalDuplicatePsiEtaIndices[duplicatedZeta1[:,_]==0]
@@ -527,13 +527,12 @@ class EmbeddedParameterization(object):
                         _totalCountsDuplicates = totalCountsDuplicates[nonzeroTotalDuplicateIndices]
 
                         #Scale zeta values for duplicate psi,eta
-                        paramScale[2+3*zeroTotalDuplicateIndices,2+3*_] = np.zeros_like(zeroTotalDuplicateIndices)
-                        paramScale[2+3*nonzeroTotalDuplicateIndices,2+3*_] = (nonzeroDuplicatedZeta1 - (nonzeroDuplicatedZeta1 -
-                                                                               nonzeroDuplicatedZeta2) * (_countsDuplicates - 1) /
-                                                                              (_totalCountsDuplicates - 1)) / nonzeroDuplicatedZeta1
+                        paramScale[2+3*zeroTotalDuplicateIndices,_] = np.zeros_like(zeroTotalDuplicateIndices)
+                        paramScale[2+3*nonzeroTotalDuplicateIndices,_] = (nonzeroDuplicatedZeta1 - (nonzeroDuplicatedZeta1 -
+                                                                          nonzeroDuplicatedZeta2) * (_countsDuplicates - 1) /
+                                                                          (_totalCountsDuplicates - 1)) / nonzeroDuplicatedZeta1
                 
         dPtdCoef = self.param.calcJacobian(np.atleast_2d(coordinates), paramScale=paramScale)
-
         return dPtdCoef
 
 

@@ -93,9 +93,8 @@ class CST3DParam(object):
         shapeScale=-1.0 can be used for a -z surface initialization
         By default, 1.0
 
-    - TODO Multiple sections - Higher level of abstraction?
+    - TODO Fix Derivative Implementation -- default and airfoil complete
     - TODO Overall abstraction/simplification, bugfixes
-    - TODO Use internal derivatives with scipy optimization
     """
 
     def __init__(self, surface, csClassFunc=None, csModFunc=None, spanClassFunc=None, spanModFunc=None, refLenFunc=None,
@@ -467,7 +466,7 @@ class CST3DParam(object):
             return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
         def jac(xyVals, *coeffs):
             surf = np.vstack([xyVals[:,0], xyVals[:,1], surface(xyVals, *coeffs)]).T
-            return self.calcJacobian(surf)[2::3,2::3]
+            return self.calcJacobian(surf)[2::3,:]
         #TODO Fix warning for cov params being inf in certain conditions
         coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],np.atleast_1d(self.getCoeffs()),jac=jac)
         self.updateCoeffs(coeffs)
@@ -652,22 +651,23 @@ class CSTAirfoil3D(CST3DParam):
         return np.vstack([self.csGeo.calcDeriv(psiEtaZeta[:,0], h), np.zeros(len(psiEtaZeta))]).T
 
     #TODO make this more efficient
-    #Calculate dXYZdCoeffs Jacobian (Analytical)
-    #dXYZdCoeff = dXYZdPsiEtaZeta * dPsiEtaZetadCoeff
+    #Calculate dUVWdCoeffs Jacobian (Analytical)
+    #dUVWdCoeffs = dUVWdXYZ * dXYZdPsiEtaZeta * dPsiEtaZetadCoeffs
     def calcJacobian(self, surface, paramScale=None, h=1e-8):
         nPts = len(surface)
         nCoeffs = len(self.getCoeffs())
         if nCoeffs>0 and nPts>0:
             psiEtaZeta = self.coords2PsiEtaZeta(surface)
-            ptsJac = self._calcPtsJacobian(psiEtaZeta, h)
-            paramsJac = self.calcParamsJacobian(psiEtaZeta, paramScale, h)
-            totalJac = np.zeros((3*nPts, 3*nCoeffs))
+            ptsJac = self._calcPtsJacobian(psiEtaZeta, h) #dXYZdPsiEtaZeta [3*NPts x 3]
+            transJac = self._calcTransformJacobian(psiEtaZeta, h) #dUVWdXYZ [3*NPts x 3]
+            paramsJac = self.calcParamsJacobian(psiEtaZeta, paramScale, h) #dPsiEtaZetadCoeffs [3*NPts x NDVs]
+            totalJac = np.zeros((3*nPts, nCoeffs))
+
             for _ in range(nPts):
-                ptJac = ptsJac[3*_:3*(_+1),:]
-                for __ in range(nCoeffs):
-                    paramJac = paramsJac[3*_:3*(_+1), 3*__:3*(__+1)]
-                    dXYZdCoeffVec = ptJac @ np.diagonal(paramJac)
-                    totalJac[3*_:3*(_+1), 3*__:3*(__+1)] = np.diag(dXYZdCoeffVec)
+                #dUVWdCoeffs = dUVWdXYZ * dXYZdPsiEtaZeta * dPsiEtaZetadCoeffs
+                totalPtJac = transJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:] @ paramsJac[3*_:3*(_+1),:]
+                totalJac[3*_:3*(_+1), :] = totalPtJac
+
         else:
             totalJac = None
         return totalJac
@@ -706,7 +706,8 @@ class CSTAirfoil3D(CST3DParam):
         nCoeffs = len(self.chordCoeffs)
         if nCoeffs>0:
             refChordJac = np.zeros((len(psiEtaZeta.flatten()),nCoeffs))
-            refChordJac[2::3, :] = -self.shapeOffsets[0]*psiEtaZeta[:,0]*np.power(self.chordCoeffs[0],-2.0)
+            dZetadChord = -self.shapeOffsets[0]*psiEtaZeta[:,0]*np.power(self.chordCoeffs[0],-2.0)
+            refChordJac[2::3,:] = np.atleast_2d(dZetadChord).T
         else:
             refChordJac = None
         return refChordJac
@@ -729,24 +730,19 @@ class CSTAirfoil3D(CST3DParam):
     # i.e [dV/dCoeff] = [dV/dX dV/dY dV/dZ]*[dY/dCoeff]
     #     [dW/dCoeff]   [dW/dX dW/dY dW/dZ] [dZ/dCoeff]
     def _calcTransformJacobian(self, surface, h=1e-8):
-        transformJac = np.zeros((len(surface.flatten()),3))
-        for _ in range(len(surface)):
-            #For a linear transformation, this is just the transpose of the reference axes
-            transformJac[3*_:3*(_+1),:] = self.refAxes.T
+        transformJac = self._calcTransformMatrix(surface)
         return transformJac
 
     #dXYZdPsiEtaZeta (analytical)
+    #     [dX/dCoeff]   [dX/dPsi dX/dEta dX/dZeta] [dPsi/dCoeff]
+    # i.e [dY/dCoeff] = [dY/dPsi dY/dEta dY/dZeta]*[dEta/dCoeff]
+    #     [dZ/dCoeff]   [dZ/dPsi dZ/dEta dZ/dZeta] [dZeta/dCoeff]
     def _calcPtsJacobian(self, psiEtaZeta, h=1e-8):
         ptsJac = np.zeros((len(psiEtaZeta.flatten()), 3))
         #transformation matrix from normalizations
         ptsJac[0::3, 0] = self.refLen(psiEtaZeta, self.chordCoeffs)
         ptsJac[1::3, 1] = self.refSpan
         ptsJac[2::3, 2] = self.refLen(psiEtaZeta, self.chordCoeffs)
-        #Pre-multiply by transformation from coordinate axes
-        surface = self.calcCoords(psiEtaZeta)
-        transformJac = self._calcTransformJacobian(surface, h)
-        for _ in range(len(psiEtaZeta)):
-            ptsJac[3*_:3*(_+1),:] = transformJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:]
         return ptsJac
 
 #################################################################################################

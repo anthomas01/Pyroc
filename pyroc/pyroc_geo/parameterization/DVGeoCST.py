@@ -39,10 +39,10 @@ class DVGeometryCST(DVGeometry):
 
         self.ptSetNames.append(ptName)
         self.zeroJacobians([ptName])
-        self.nPts[ptName] = None
 
         points = np.array(points).real.astype('d')
         self.points[ptName] = points
+        self.nPts[ptName] = len(points.flatten())
 
         # Ensure we project into the undeformed geometry
         if origConfig:
@@ -166,78 +166,43 @@ class DVGeometryCST(DVGeometry):
     def computeTotalJacobian(self, ptSetName, config=None):
         """Return the total point jacobian in CSR format since we
         need this for TACS"""
-        self.computeTotalJacobianFD(ptSetName, config=config)
     
-        # # Finalize the object, if not done yet
-        # self.finalize()
-        # self.curPtSet = ptSetName
+        # Finalize the object, if not done yet
+        self.finalize()
+        self.curPtSet = ptSetName
 
-        # if self.JT[ptSetName] is not None:
-        #     return
+        if self.JT[ptSetName] is not None:
+            return
 
-        # # compute the derivatives of the coefficients of this level wrt all of the design
-        # # variables at this level and all levels above
-        # J_temp = self.computeDVJacobian(config=config)
+        if self.nPts[ptSetName] is None:
+            coords0 = self.update(ptSetName, config=config).flatten()
+            self.nPts[ptSetName] = len(coords0.flatten())
 
-        # # Update dPtdCoef
-        # self.param.calcdPtdCoef(ptSetName)
+        NDV = self.getNDV()
+        if NDV > 0:
+            dvCounter = 0
+            totalJac = np.zeros((NDV, self.nPts[ptSetName]))
 
-        # # now get the derivative of the points for this level wrt the coefficients(dPtdCoef)
-        # if self.param.embeddedSurfaces[ptSetName].dPtdCoef is not None:
-        #     dPtdCoef = self.param.embeddedSurfaces[ptSetName].dPtdCoef.tocsr()
+            # Update dPtdGlobal
+            dPtdGlobal = self.computeGlobalJacobian(ptSetName, config)
+            if dPtdGlobal is not None:
+                dvCounter = self.getNDVGlobal()
+                totalJac[:dvCounter,:] = dPtdGlobal
 
-        #     # Do Sparse Mat-Mat multiplication and resort indices
-        #     if J_temp is not None:
-        #         print(J_temp.get_shape())
-        #         print(dPtdCoef.get_shape())
-        #         self.JT[ptSetName] = (J_temp.T * dPtdCoef.T).tocsr()
-        #         self.JT[ptSetName].sort_indices()
-        # else:
-        #     self.JT[ptSetName] = None
+            # Update dPtdLocal
+            self.param.calcdPtdCoef(ptSetName)
+            dPtdLocal = self.param.embeddedSurfaces[ptSetName].dPtdCoef.T
+            if dPtdLocal is not None:
+                totalJac[dvCounter:,:] = dPtdLocal
+        
+            self.JT[ptSetName] = totalJac.tocsr()
+            self.JT[ptSetName].sort_indices()
+
+        else:
+            self.JT[ptSetName] = None
 
     ### Internal Functions
 
     def finalize(self):
-        if self.finalized:
-            return
-        self.finalized = True
+        super().finalize()
         self.nCoefFull = sum([len(_) for _ in self.param.coef])
-
-    def localDVJacobian(self, config=None):
-        """
-        Return the derivative of the coefficients wrt the local design
-        variables
-        """
-
-        # This is relatively straight forward, since the matrix is
-        # entirely one's or zeros
-        nDV = self.getNDVLocal()
-        self.getDVOffsets()
-
-        if nDV != 0:
-            Jacobian = sparse.lil_matrix((3 * self.nCoefFull, self.nDV_T))
-
-            iDVLocal = self.nDVL_count
-            for key in self.DV_listLocal:
-                if (
-                    self.DV_listLocal[key].config is None
-                    or config is None
-                    or any(c0 == config for c0 in self.DV_listLocal[key].config)
-                ):
-
-                    self.DV_listLocal[key](self.param.coef, config)
-                    nVal = self.DV_listLocal[key].nVal
-                    for j in range(nVal):
-                        pt_dv = self.DV_listLocal[key].ind[j] # [paramNameIndex, index]
-                        shift = sum([len(self.param.coef[_]) for _ in range(pt_dv[0])])
-                        irow = 3 * (pt_dv[0] * shift + pt_dv[1])
-                        Jacobian[irow, iDVLocal] = 1.0
-                        Jacobian[irow+1, iDVLocal] = 1.0
-                        Jacobian[irow+2, iDVLocal] = 1.0
-                        iDVLocal += 1
-
-                else:
-                    iDVLocal += self.DV_listLocal[key].nVal
-        else:
-            Jacobian = None
-        return Jacobian
