@@ -710,7 +710,7 @@ class DVGeometry(object):
 
         DVGlobalCount, DVLocalCount = self.getDVOffsets()
 
-        self.JT[ptSetName] = np.zeros((self.nDV_T, self.nPts[ptSetName]))
+        totalJacFD = np.zeros((self.nDV_T, self.nPts[ptSetName]))
 
         for key in self.DV_listGlobal:
             for j in range(self.DV_listGlobal[key].nVal):
@@ -722,7 +722,7 @@ class DVGeometry(object):
                 coordsph = self.update(ptSetName, config=config).flatten()
 
                 deriv = (coordsph - coords0) / h
-                self.JT[ptSetName][DVGlobalCount, :] = deriv
+                totalJacFD[DVGlobalCount, :] = deriv
 
                 DVGlobalCount += 1
                 self.DV_listGlobal[key].value[j] = refVal
@@ -736,10 +736,12 @@ class DVGeometry(object):
                 coordsph = self.update(ptSetName, config=config).flatten()
 
                 deriv = (coordsph - coords0) / h
-                self.JT[ptSetName][DVLocalCount, :] = deriv
+                totalJacFD[DVLocalCount, :] = deriv
 
                 DVLocalCount += 1
                 self.DV_listLocal[key].value[j] = refVal
+
+        self.JT[ptSetName] = sparse.csr_matrix(totalJacFD)
     
     def printDesignVariables(self):
         """
@@ -766,7 +768,7 @@ class DVGeometry(object):
         """
 
         print("Computing Analytic Jacobian...")
-        self.zeroJacobians(ptSetName)
+        self.zeroJacobians([ptSetName])
         self.computeTotalJacobian(ptSetName)
 
         Jac = copy.deepcopy(self.JT[ptSetName])
@@ -801,8 +803,8 @@ class DVGeometry(object):
                     relErr = (deriv[ii] - Jac[DVCountGlob, ii]) / (1e-16 + Jac[DVCountGlob, ii])
                     absErr = deriv[ii] - Jac[DVCountGlob, ii]
 
-                    #if abs(relErr) > h * 10 and abs(absErr) > h * 10:
-                    print(ii, deriv[ii], Jac[DVCountGlob, ii], relErr, absErr)
+                    if abs(relErr) > h * 10 and abs(absErr) > h * 10:
+                        print(ii, deriv[ii], Jac[DVCountGlob, ii], relErr, absErr)
 
                 DVCountGlob += 1
                 self.DV_listGlobal[key].value[j] = refVal
@@ -825,8 +827,8 @@ class DVGeometry(object):
                     relErr = (deriv[ii] - Jac[DVCountLoc, ii]) / (1e-16 + Jac[DVCountLoc, ii])
                     absErr = deriv[ii] - Jac[DVCountLoc, ii]
 
-                    #if abs(relErr) > h and abs(absErr) > h:
-                    print(ii, deriv[ii], Jac[DVCountLoc, ii], relErr, absErr)
+                    if ii in [17,20,23,26,29,32,8]:
+                        print(ii, deriv[ii], Jac[DVCountLoc, ii], relErr, absErr)
 
                 DVCountLoc += 1
                 self.DV_listLocal[key].value[j] = refVal

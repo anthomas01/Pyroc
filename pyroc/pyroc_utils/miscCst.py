@@ -24,8 +24,8 @@ def bernstein1DDeriv(psiVals, n, h=1e-8):
     orderRange = np.arange(n+1) #binary coefficient constants
     binCoeffs = binaryCoefficients(n)
     if isScalar(psiVals):
-        terms = binCoeffs*(orderRange*np.power(psiVals,orderRange-1)*np.power(1-psiVals,n-orderRange) -
-                           (n-orderRange)*np.power(psiVals, orderRange)*np.power(1-psiVals,n-orderRange-1))
+        terms = binCoeffs * (orderRange*np.power(psiVals,orderRange-1)*np.power(1-psiVals,n-orderRange) -
+                             (n-orderRange)*np.power(psiVals,orderRange)*np.power(1-psiVals,n-orderRange-1))
     else:
         terms = []
         for psi in psiVals:
@@ -35,7 +35,7 @@ def bernstein1DDeriv(psiVals, n, h=1e-8):
 
 #dBernsteindShapeCoeffs
 def bernstein1DJacobian(psiVals, n, h=1e-8):
-    if n+1>0:
+    if n>=0:
         binCoeffs = binaryCoefficients(n)
         bernsteinJac = np.zeros((len(psiVals),n+1))
         for _ in range(n+1):

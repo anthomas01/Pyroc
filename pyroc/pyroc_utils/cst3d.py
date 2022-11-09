@@ -631,8 +631,8 @@ class CSTAirfoil3D(CST3DParam):
 
     #Calculate psi,eta,zeta from surface
     def coords2PsiEtaZeta(self, surface):
-        psiEtaZeta =  super().coords2PsiEtaZeta(surface)
-        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-12
+        psiEtaZeta = super().coords2PsiEtaZeta(surface)
+        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-16
         return psiEtaZeta
 
     def calcXZ2Y(self, xVals, zVals):
@@ -665,8 +665,7 @@ class CSTAirfoil3D(CST3DParam):
 
             for _ in range(nPts):
                 #dUVWdCoeffs = dUVWdXYZ * dXYZdPsiEtaZeta * dPsiEtaZetadCoeffs
-                totalPtJac = transJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:] @ paramsJac[3*_:3*(_+1),:]
-                totalJac[3*_:3*(_+1), :] = totalPtJac
+                totalJac[3*_:3*(_+1), :] = transJac[3*_:3*(_+1),:] @ ptsJac[3*_:3*(_+1),:] @ paramsJac[3*_:3*(_+1),:]
 
         else:
             totalJac = None
@@ -678,7 +677,7 @@ class CSTAirfoil3D(CST3DParam):
         #Implement param scale for above level connections
         #Param scale must be (N,3) where N is length of paramsJac
         if paramScale is not None:
-            paramsJac = paramsJac * paramScale
+            paramsJac = np.multiply(paramsJac,paramScale)
         return paramsJac
 
     #dPsiEtaZetadCsClassCoeffs (Analytical)

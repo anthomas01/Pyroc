@@ -180,23 +180,23 @@ class DVGeometryCST(DVGeometry):
 
         NDV = self.getNDV()
         if NDV > 0:
-            dvCounter = 0
-            totalJac = np.zeros((NDV, self.nPts[ptSetName]))
+            totalJac = None
 
             # Update dPtdGlobal
             dPtdGlobal = self.computeGlobalJacobian(ptSetName, config)
             if dPtdGlobal is not None:
-                dvCounter = self.getNDVGlobal()
-                totalJac[:dvCounter,:] = dPtdGlobal
+                totalJac = sparse.csr_matrix(dPtdGlobal)
 
             # Update dPtdLocal
-            self.param.calcdPtdCoef(ptSetName)
-            dPtdLocal = self.param.embeddedSurfaces[ptSetName].dPtdCoef.T
+            dPtdLocal = sparse.csr_matrix(self.computeLocalJacobian(ptSetName, config))
             if dPtdLocal is not None:
-                totalJac[dvCounter:,:] = dPtdLocal
+                if totalJac is None:
+                    totalJac = dPtdLocal
+                else:
+                    totalJac = sparse.vstack((totalJac, dPtdLocal))
         
-            self.JT[ptSetName] = totalJac.tocsr()
-            self.JT[ptSetName].sort_indices()
+            self.JT[ptSetName] = totalJac
+            #self.JT[ptSetName].sort_indices()
 
         else:
             self.JT[ptSetName] = None
@@ -206,3 +206,20 @@ class DVGeometryCST(DVGeometry):
     def finalize(self):
         super().finalize()
         self.nCoefFull = sum([len(_) for _ in self.param.coef])
+
+    def computeLocalJacobian(self, ptSetName, config=None):
+        #Update
+        self.param.calcdPtdCoef(ptSetName)
+        totaldPtdLocal = self.param.embeddedSurfaces[ptSetName].dPtdCoef.T
+
+        #Only get indices needed by design variables
+        dPtdLocal = np.zeros((self.getNDVLocal(), self.nPts[ptSetName]))
+        localCounter = 0
+        for key in self.DV_listLocal:
+            indices = self.DV_listLocal[key].ind
+            for j in range(self.DV_listLocal[key].nVal):
+                dvBuf = sum([len(self.param.coef[indices[i,0]]) for i in range(indices[j,0])])
+                dPtdLocal[localCounter, :] = totaldPtdLocal[indices[j,1]+dvBuf, :]
+                localCounter+=1
+
+        return dPtdLocal

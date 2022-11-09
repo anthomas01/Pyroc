@@ -295,6 +295,7 @@ class CSTAirfoil2D(CST2DParam):
         coeffs = coeffs[0]
         return np.power(psiVals,coeffs[0])*np.power(1-psiVals,coeffs[1])
 
+    #TODO - Check
     #LE Radius Functions
     def updateLERadius(self, r):
         self.shapeCoeffs[0] = np.sqrt(2*r/self.refLen)
@@ -304,6 +305,7 @@ class CSTAirfoil2D(CST2DParam):
         r = 0.5*self.refLen*np.power(self.shapeCoeffs[0],2)
         return r
 
+    #TODO - Check
     #Boattail Angle Function
     def updateTEAngle(self, beta):
         self.shapeCoeffs[-1] = np.tan(beta)+self.shapeOffset
@@ -340,7 +342,6 @@ class CSTAirfoil2D(CST2DParam):
 
     #dZetadClassCoeff - analytic, class func is known
     def _calcClassJacobian(self, psiVals, h=1e-8):
-        n1,n2 = self.classCoeffs
         dZetadN1 = np.log(psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadN2 = np.log(1-psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadClass = np.vstack([dZetadN1,dZetadN2]).T
