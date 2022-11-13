@@ -620,20 +620,18 @@ class CSTAirfoil3D(CST3DParam):
     def calcEta(self, psiEtaZeta):
         return psiEtaZeta[:,1]
 
-    def calcZeta(self, psiEtaZeta, zetaScale=None):
+    def calcZeta(self, psiEtaZeta, zetaOffset=None):
         zetaVals = self.csGeo.calcZeta(psiEtaZeta[:,0])
-
-        #Implement param scale for above level connections
-        if zetaScale is not None:
-            zetaVals = zetaVals * zetaScale
-
+        #Implement param offset for above level connections
+        if zetaOffset is not None:
+            zetaVals = zetaVals + zetaOffset
         return zetaVals
 
     #Calculate psi,eta,zeta from surface
-    def coords2PsiEtaZeta(self, surface):
-        psiEtaZeta = super().coords2PsiEtaZeta(surface)
-        psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-16
-        return psiEtaZeta
+    #def coords2PsiEtaZeta(self, surface):
+    #    psiEtaZeta = super().coords2PsiEtaZeta(surface)
+    #    psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-16
+    #    return psiEtaZeta
 
     def calcXZ2Y(self, xVals, zVals):
         return 0
@@ -653,14 +651,14 @@ class CSTAirfoil3D(CST3DParam):
     #TODO make this more efficient
     #Calculate dUVWdCoeffs Jacobian (Analytical)
     #dUVWdCoeffs = dUVWdXYZ * dXYZdPsiEtaZeta * dPsiEtaZetadCoeffs
-    def calcJacobian(self, surface, paramScale=None, h=1e-8):
+    def calcJacobian(self, surface, paramOffset=None, h=1e-8):
         nPts = len(surface)
         nCoeffs = len(self.getCoeffs())
         if nCoeffs>0 and nPts>0:
             psiEtaZeta = self.coords2PsiEtaZeta(surface)
             ptsJac = self._calcPtsJacobian(psiEtaZeta, h) #dXYZdPsiEtaZeta [3*NPts x 3]
             transJac = self._calcTransformJacobian(psiEtaZeta, h) #dUVWdXYZ [3*NPts x 3]
-            paramsJac = self.calcParamsJacobian(psiEtaZeta, paramScale, h) #dPsiEtaZetadCoeffs [3*NPts x NDVs]
+            paramsJac = self.calcParamsJacobian(psiEtaZeta, paramOffset, h) #dPsiEtaZetadCoeffs [3*NPts x NDVs]
             totalJac = np.zeros((3*nPts, nCoeffs))
 
             for _ in range(nPts):
@@ -669,15 +667,16 @@ class CSTAirfoil3D(CST3DParam):
 
         else:
             totalJac = None
+
         return totalJac
 
     #dPsiEtaZetadParams
-    def calcParamsJacobian(self, psiEtaZeta, paramScale=None, h=1e-8):
+    def calcParamsJacobian(self, psiEtaZeta, paramOffset=None, h=1e-8):
         paramsJac = super().calcParamsJacobian(psiEtaZeta, h)
         #Implement param scale for above level connections
         #Param scale must be (N,3) where N is length of paramsJac
-        if paramScale is not None:
-            paramsJac = np.multiply(paramsJac,paramScale)
+        if paramOffset is not None:
+            paramsJac = paramsJac + paramOffset
         return paramsJac
 
     #dPsiEtaZetadCsClassCoeffs (Analytical)

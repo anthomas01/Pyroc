@@ -50,7 +50,7 @@ class DVGeometryCST(DVGeometry):
             self.param.coef = self.origParamCoef
             self.param.updateCoeffs()
 
-        self.param.attachPoints(self.points[ptName], ptName)
+        self.param.attachPoints(self.points[ptName], ptName, **kwargs)
 
         if origConfig:
             self.param.coef = tmpCoef

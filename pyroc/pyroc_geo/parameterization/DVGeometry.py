@@ -827,7 +827,7 @@ class DVGeometry(object):
                     relErr = (deriv[ii] - Jac[DVCountLoc, ii]) / (1e-16 + Jac[DVCountLoc, ii])
                     absErr = deriv[ii] - Jac[DVCountLoc, ii]
 
-                    if ii in [17,20,23,26,29,32,8]:
+                    if abs(relErr) > h * 10 and abs(absErr) > h * 10:
                         print(ii, deriv[ii], Jac[DVCountLoc, ii], relErr, absErr)
 
                 DVCountLoc += 1
