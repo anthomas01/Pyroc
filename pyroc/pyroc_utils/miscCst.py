@@ -12,8 +12,11 @@ def bernstein1D(psiVals, n):
     orderRange = np.arange(n+1)
     binCoeffs = binaryCoefficients(n)
     if isScalar(psiVals):
+        psiVals = 1e-16 if psiVals==0.0 else (1 - 1e-16 if psiVals==1.0 else psiVals)
         terms = binCoeffs*np.power(psiVals,orderRange)*np.power(1-psiVals,n-orderRange)
     else:
+        psiVals[psiVals==0.0] = 1e-16
+        psiVals[psiVals==1.0] = 1 - 1e-16
         terms = []
         for psi in psiVals:
             terms.append(binCoeffs*np.power(psi,orderRange)*np.power(1-psi,n-orderRange))
@@ -24,9 +27,12 @@ def bernstein1DDeriv(psiVals, n, h=1e-8):
     orderRange = np.arange(n+1) #binary coefficient constants
     binCoeffs = binaryCoefficients(n)
     if isScalar(psiVals):
+        psiVals = 1e-16 if psiVals==0.0 else (1 - 1e-16 if psiVals==1.0 else psiVals)
         terms = binCoeffs * (orderRange*np.power(psiVals,orderRange-1)*np.power(1-psiVals,n-orderRange) -
                              (n-orderRange)*np.power(psiVals,orderRange)*np.power(1-psiVals,n-orderRange-1))
     else:
+        psiVals[psiVals==0.0] = 1e-16
+        psiVals[psiVals==1.0] = 1 - 1e-16
         terms = []
         for psi in psiVals:
             terms.append(binCoeffs * (orderRange * np.power(psi, orderRange-1) * np.power(1-psi, n-orderRange) -

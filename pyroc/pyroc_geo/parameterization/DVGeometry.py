@@ -30,6 +30,8 @@ class DVGeometry(object):
         self.nDVG_count = 0  # number of global   (G)  variables
         self.nDVL_count = 0  # number of local    (L)  variables
         self.useComposite = False
+                
+        self.useFD = False
 
     def addPointSet(self, points, ptName, origConfig=True):
         """
@@ -339,11 +341,11 @@ class DVGeometry(object):
         --------
         optProb.addCon(.....wrt=DVGeo.getVarNames())
         """
-        if not pyOptSparse or not self.useComposite:
-            names = list(self.DV_listGlobal.keys())
-            names.extend(list(self.DV_listLocal.keys()))
-        else:
-            names = [self.DVComposite.name]
+        #if not pyOptSparse or not self.useComposite:
+        names = list(self.DV_listGlobal.keys())
+        names.extend(list(self.DV_listLocal.keys()))
+        #else:
+        #    names = [self.DVComposite.name]
 
         return names
 
@@ -392,7 +394,10 @@ class DVGeometry(object):
         N = dIdpt.shape[0]
 
         # generate the total Jacobian self.JT
-        self.computeTotalJacobian(ptSetName, config=config)
+        if self.useFD:
+            self.computeTotalJacobianFD(ptSetName, config=config)
+        else:
+            self.computeTotalJacobian(ptSetName, config=config)
 
         # now that we have self.JT compute the Mat-Mat multiplication
         nDV = self.getNDV()
@@ -439,7 +444,10 @@ class DVGeometry(object):
         xsdot : array (Nx3) -> Array with derivative seeds of the surface nodes.
         """
 
-        self.computeTotalJacobian(ptSetName, config=config)  # This computes and updates self.JT
+        if self.useFD:
+            self.computeTotalJacobianFD(ptSetName, config=config)
+        else:
+            self.computeTotalJacobian(ptSetName, config=config)  # This computes and updates self.JT
 
         names = self.getVarNames()
         newvec = np.zeros(self.getNDV(), self.dtype)
@@ -492,8 +500,10 @@ class DVGeometry(object):
             The dictionary containing the derivatives, suitable for
             pyOptSparse
         """
-
-        self.computeTotalJacobian(ptSetName, config=config)
+        if self.useFD:
+            self.computeTotalJacobianFD(ptSetName, config=config)
+        else:
+            self.computeTotalJacobian(ptSetName, config=config)
 
         # perform the product
         if self.JT[ptSetName] is None:
@@ -827,7 +837,7 @@ class DVGeometry(object):
                     relErr = (deriv[ii] - Jac[DVCountLoc, ii]) / (1e-16 + Jac[DVCountLoc, ii])
                     absErr = deriv[ii] - Jac[DVCountLoc, ii]
 
-                    if abs(relErr) > h * 10 and abs(absErr) > h * 10:
+                    if abs(relErr) > h and abs(absErr) > h:
                         print(ii, deriv[ii], Jac[DVCountLoc, ii], relErr, absErr)
 
                 DVCountLoc += 1

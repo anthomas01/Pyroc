@@ -293,6 +293,8 @@ class CSTAirfoil2D(CST2DParam):
     #Class Function for an airfoil
     def airfoilClassFunc(self, psiVals, *coeffs):
         coeffs = coeffs[0]
+        psiVals[psiVals==0.0] = 1e-16
+        psiVals[psiVals==1.0] = 1 - 1e-16
         return np.power(psiVals,coeffs[0])*np.power(1-psiVals,coeffs[1])
 
     #TODO - Check
@@ -342,6 +344,8 @@ class CSTAirfoil2D(CST2DParam):
 
     #dZetadClassCoeff - analytic, class func is known
     def _calcClassJacobian(self, psiVals, h=1e-8):
+        psiVals[psiVals==0.0] = 1e-16
+        psiVals[psiVals==1.0] = 1 - 1e-16
         dZetadN1 = np.log(psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadN2 = np.log(1-psiVals)*self.classFunc(psiVals,self.classCoeffs)*self.shapeFunc(psiVals,self.shapeCoeffs)
         dZetadClass = np.vstack([dZetadN1,dZetadN2]).T

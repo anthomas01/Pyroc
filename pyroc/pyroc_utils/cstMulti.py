@@ -4,6 +4,8 @@ from scipy.spatial import Delaunay
 import numpy as np
 import os
 
+#TODO Move connections to separate file
+
 class CSTMultiParam(object):
     #Class for managing multiple CST geometry objects
 
@@ -15,7 +17,9 @@ class CSTMultiParam(object):
         #Refit when adding new coords?
         self.fit = False
         self.fitIter = 2
-        self.sigFigs = 8 # Sig figs for fitting connections
+        self.sigFigs = 16 # Sig figs for fitting connections
+
+        #self.mapper
 
     def attachPoints(self, coordinates, ptSetName, embeddedParams=None, parameterization=False):
         #Project points to surface/CST geom object if some were passed in
@@ -147,7 +151,7 @@ class CSTMultiParam(object):
             coords = param.param.updateCoords()
             ax.plot_trisurf(coords[:,0], coords[:,1], coords[:,2], triangles=tri.simplices.copy())
 
-    def fitMulti(self, file):
+    def fitMulti(self, file, fitIter=2):
         #Project points to surface/CST geom object (csv input)
         #TODO multiple file types
         if (os.path.exists(file)):
@@ -166,18 +170,20 @@ class CSTMultiParam(object):
                     splitLine = line.split()
                     if 'vertex' in splitLine:
                         coordinates.append([float(_) for _ in splitLine[-3:]])
+                coordinates = np.unique(coordinates,axis=0)
             f.close()
-
-            self.embeddedSurfaces['fit'] = EmbeddedSurface(np.atleast_2d(coordinates), self.embeddedParams, fit=True)
+            
+            self.embeddedSurfaces['fit'] = EmbeddedSurface(np.atleast_2d(coordinates), self.embeddedParams, fit=True, fitIter=fitIter)
             self.setCoeffs()
         else:
             raise Exception('%s does not exist' % file)
 
 
+
 class EmbeddedSurface(object):
     #Class for managing multiple CST surfaces
 
-    def __init__(self, coordinates, embeddedParams, fit=False, fitIter=2, parameterization=False, sig=8):
+    def __init__(self, coordinates, embeddedParams, fit=False, fitIter=1, parameterization=False, sig=8):
         self.embeddedParams = embeddedParams
         self.N = len(coordinates)
         self.connectionsDict = OrderedDict()
@@ -207,32 +213,69 @@ class EmbeddedSurface(object):
                 #Group coordinates by parameterization and apply fit if True
                 self.parameterization = self.fitParams(fit)
 
-                self.initializeParameterizationConnections(sig)
+            self.initializeParameterizationConnections(sig)
     
-    #TODO Make these more efficient
+    #TODO FIXME
+    #Move mapping to seperate class?
+    #The love algorithm
     def mapCoords2Params(self):
         #Returns array that is the same size as the coordinate list
         #Each indice contains the name of an EmbeddedParameterization object
-        paramMap = ['' for _ in range(self.N)]
 
-        for _ in range(self.N):
-            #Brute force least square distance?
-            closest = 1e8
-            for paramName in self.embeddedParams:
+        # FIXME
+        # Needs better initial guess
+        # Will not work if initial guess creates invalid psiEtaZeta
+        # Will not work if final surfaces are very very close?
+
+        paramNames = list(self.embeddedParams.keys())
+        paramMap = [paramNames[0] for _ in range(self.N)]
+        #Mapping only necessary when there are multiple params
+        if len(paramNames)>1:
+            coordinates = np.copy(self.coordinates)
+            #Find surfaces where certain principles are not violated?
+            #Get better initial guess (modified k-means?)
+            #Least euclidean squares?
+            for paramName in paramNames:
                 param = self.embeddedParams[paramName]
-                psiEtaZeta = param.calcParameterization(self.coordinates[_])
-                psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta)
-                computedXYZ = param.calcCoords(psiEtaZeta)
+                psiEtaZeta = param.calcParameterization(self.coordinates)
+                param_psiEtaZeta = np.copy(psiEtaZeta)
+                param_psiEtaZeta[:,2] = param.calcZeta(param_psiEtaZeta)
+                distSquared = np.sum(np.power(psiEtaZeta-param_psiEtaZeta,2),axis=1)
 
-                d2 = np.sum(np.power(self.coordinates[_]-computedXYZ,2))
-                if d2==closest and paramMap[_-1]==paramName:
-                    paramMap[_] = paramName
-                elif d2<closest:
-                    paramMap[_] = paramName
-                    closest = d2
+                if paramName == paramNames[0]:
+                    closest = distSquared
+                else:
+                    for i in range(self.N):
+                        if distSquared[i]<closest[i]:
+                            paramMap[i] = paramName
+                            closest[i] = distSquared[i]
+
+        # objectiveDict = OrderedDict()
+        # for paramName in self.embeddedParams:
+        #     param = self.embeddedParams[paramName]
+        #     #Get parameterization coordinates
+        #     psiEtaZeta = param.calcParameterization(self.coordinates)
+        #     param_psiEtaZeta = np.copy(psiEtaZeta)
+        #     param_psiEtaZeta[:,2] = param.calcZeta(param_psiEtaZeta)
+        #     distSquared = np.sum(np.power(psiEtaZeta-param_psiEtaZeta,2),axis=1)
+        #     #Get parameterization gradient
+        #     param_gradZeta = param.param.calcParamsGrad(param_psiEtaZeta)
+        #     objectiveDict[paramName] = distSquared
+            
+        # for i in range(self.N):
+        #     closest = objectiveDict[paramNames[0]][i]
+        #     for paramName in paramNames[1:]:
+        #         iObj = objectiveDict[paramName][i]
+        #         if iObj<closest:
+        #             paramMap[i] = paramName
+        #             closest = iObj
+
+        if '' in paramMap:
+            raise Exception('One or more points were not fit')
 
         return paramMap
 
+    #TODO FIXME
     def mapParameterization2Params(self, parameterization):
         '''Returns array that is the same size as the coordinate list.
            Each indice contains the name of an EmbeddedParameterization object'''
@@ -254,6 +297,7 @@ class EmbeddedSurface(object):
                     closest = d2
         return paramMap
 
+    #TODO Move to connections
     def initializeParameterizationConnections(self, decTol=8):
         '''
         Determines connection parameters for point set
@@ -312,14 +356,29 @@ class EmbeddedSurface(object):
                             _boundZeta1 = np.min(psiEtaZeta[:,2])
                             _boundZeta2 = np.max(psiEtaZeta[:,2])
 
-                        n1 = 1.0 + (totalCountsDuplicates[thisPsiEtaIndices] - 1.0) * (_boundZeta1 - psiEtaZeta[:,2]) / (_boundZeta1 - _boundZeta2)
+                        thisTotalCounts = totalCountsDuplicates[thisPsiEtaIndices]
+                        n1 = 1.0 + (thisTotalCounts - 1.0) * (_boundZeta1 - psiEtaZeta[:,2]) / (_boundZeta1 - _boundZeta2)
 
-                        #Issue with points rounding to wrong place in linear?
+                        #Set countsDuplicates
+                        #Interpolate if necessary
                         if connection['linear']:
-                            countsDuplicates[thisPsiEtaIndices] = np.round(n1,0) #FIXME
                             # Need to find order of points while keeping bounds as 1 and N
+                            #Set boundaries
+                            firstInd = closestPoint(psiEtaZeta[:,2],boundZeta1)[0]
+                            countsDuplicates[thisPsiEtaIndices[firstInd]] = 1
+                            lastInd = closestPoint(psiEtaZeta[:,2],boundZeta2)[0]
+                            countsDuplicates[thisPsiEtaIndices[lastInd]] = thisTotalCounts[lastInd]
+                            #Set others
+                            if len(thisPsiEtaIndices)>2:
+                                middleInd = [i for i in range(len(thisPsiEtaIndices)) if i not in [firstInd, lastInd]]
+                                for __ in range(len(middleInd)):
+                                    ind = middleInd[np.where(np.sort(n1[middleInd])==n1[middleInd[__]])[0][0]]
+                                    countsDuplicates[thisPsiEtaIndices[ind]] = __+2
                         else:
+                            #Keep track of exact point placement
                             countsDuplicates[thisPsiEtaIndices] = n1
+
+                        #print(thisPsiEtaIndices,countsDuplicates[thisPsiEtaIndices],self.parameterization[thisPsiEtaIndices])
 
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==connection['connectingParam']][0]
@@ -406,18 +465,18 @@ class EmbeddedSurface(object):
                         duplicatePsiEtaZeta[:,2] = param.param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta)) #Unscaled zeta
                         jac = param.param.calcParamsJacobian(np.atleast_2d(duplicatePsiEtaZeta))
 
+                        #Calculate offset
                         paramOffset = np.zeros_like(jac)
                         for i in range(len(coefMap[paramName])):
-                            #Calculate offset
                             paramOffset[2::3,i] = (jac[2::3,i] * (1 - connectingCountsDuplicates[totalDuplicatePsiEtaIndices]) /
                                                       (connectingTotalCountsDuplicates[totalDuplicatePsiEtaIndices] - 1))
-                        
+
                         #Calculate connection derivative
                         indices = np.sort(np.array([[3*_+__ for __ in range(3)] for _ in duplicateConnectingCoordinateIndices]).flatten())
-                        offsetJac = param.param.calcJacobian(np.atleast_2d(self.coordinates[duplicateConnectingCoordinateIndices,:]),
+                        connectionJac = param.param.calcJacobian(np.atleast_2d(self.coordinates[duplicateConnectingCoordinateIndices,:]),
                                                              paramOffset=paramOffset)
                         for i in range(len(coefMap[paramName])):
-                            dPtdCoef[indices,coefMap[paramName][i]] = offsetJac[:,i]
+                            dPtdCoef[indices,coefMap[paramName][i]] = connectionJac[:,i]
 
         self.dPtdCoef = dPtdCoef
 
@@ -435,7 +494,8 @@ class EmbeddedSurface(object):
         if performFit:
             for paramName in uniqueParams:
                 param = self.embeddedParams[paramName]
-                param.fitCoefficients(paramCoords[paramName])
+                coords = np.array(paramCoords[paramName])
+                param.fitCoefficients(coords)
 
         #Update parameterization
         parameterization = np.zeros_like(self.coordinates)

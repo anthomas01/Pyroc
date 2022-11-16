@@ -316,8 +316,7 @@ class CST3DParam(object):
     #Calculate z vals from x and y vals
     def calcXY2Z(self, xVals, yVals):
         xyz = np.vstack([xVals, yVals, np.zeros_like(xVals)]).T
-        etaVals = self.calcXYZ2Eta(xyz)
-        psiEtaZeta = np.vstack([self.calcXYZ2Psi(xyz), etaVals, np.zeros_like(etaVals)]).T
+        psiEtaZeta = np.vstack([self.calcXYZ2Psi(xyz), self.calcXYZ2Eta(xyz), np.zeros(len(xyz))]).T
         psiEtaZeta[:,2] = self.calcZeta(psiEtaZeta)
         zVals = self.calcPsiEtaZeta2Z(psiEtaZeta)
         return zVals
@@ -385,7 +384,7 @@ class CST3DParam(object):
         psiEtaZetaH = np.copy(psiEtaZeta)
         dZetadPsi = np.zeros_like(psiEtaZetaH)
         for _ in range(len(psiEtaZetaH)):
-            if psiEtaZetaH[_,0] == 1.0:
+            if psiEtaZetaH[_,0] == 1.0-h:
                 psiEtaZetaH[_,0] -= h
                 dZetadPsi[_] = (self.calcZeta(psiEtaZeta) - self.calcZeta(psiEtaZetaH))/h
             else:
@@ -395,7 +394,7 @@ class CST3DParam(object):
         psiEtaZetaH = np.copy(psiEtaZeta)
         dZetadEta = np.zeros_like(psiEtaZetaH)
         for _ in range(len(psiEtaZetaH)):
-            if psiEtaZetaH[_,1] == 1.0:
+            if psiEtaZetaH[_,1] >= 1.0-h:
                 psiEtaZetaH[_,1] -= h
                 dZetadPsi[_] = (self.calcZeta(psiEtaZeta) - self.calcZeta(psiEtaZetaH))/h
             else:
@@ -403,7 +402,7 @@ class CST3DParam(object):
                 dZetadEta[_] = (self.calcZeta(psiEtaZetaH) - self.calcZeta(psiEtaZeta))/h
         return np.vstack([dZetadPsi, dZetadEta]).T
 
-    #Calculate gradient of z(x,y)
+    #Calculate gradient of z(x,y) (internal coordinates)
     def calcGrad(self, surface, h=1e-8):
         psiEtaZeta = self.coords2PsiEtaZeta(surface)
         paramsGrad = self.calcParamsGrad(psiEtaZeta, h)
@@ -436,7 +435,7 @@ class CST3DParam(object):
 
     #Calculate dUVWdCoeffs Jacobian (FD)
     #dUVWdCoeff = dUVWdPsiEtaZeta * dPsiEtaZetadCoeff
-    def calcJacobian(self, surface, h=1e-8):
+    def calcJacobianFD(self, surface, h=1e-8):
         coeffs = self.getCoeffs()
         nCoeffs = len(coeffs)
         if nCoeffs>0 and len(surface)>0:
@@ -454,21 +453,30 @@ class CST3DParam(object):
         else:
             raise Exception('Class has no internal coefficients!')
         return totalJac
+    
+    def calcJacobian(self, surface, h=1e-8):
+        return self.calcJacobianFD(surface, h)
 
     #Get dXYZdCoeffs Jacobian
     def getJacobian(self):
         return self.calcJacobian(self.surface)
 
     #Perform a fit of the coefficients
-    def fit3d(self, coords):
+    def fit3d(self, coordinates):
         def surface(xyVals, *coeffs):
             self.updateCoeffs(list(coeffs))
-            return self.calcXY2Z(xyVals[:,0], xyVals[:,1])
+            xyz = np.vstack([xyVals[:,0], xyVals[:,1], np.zeros(len(xyVals))]).T
+            xyzTrans = self.transformSurface(xyz)
+            xyzTrans[:,2] = self.calcXY2Z(xyzTrans[:,0], xyzTrans[:,1])
+            return self.untransformSurface(xyzTrans)[:,2]
+
         def jac(xyVals, *coeffs):
             surf = np.vstack([xyVals[:,0], xyVals[:,1], surface(xyVals, *coeffs)]).T
             return self.calcJacobian(surf)[2::3,:]
+
         #TODO Fix warning for cov params being inf in certain conditions
-        coeffs,cov = scp.curve_fit(surface,coords[:,0:2],coords[:,2],np.atleast_1d(self.getCoeffs()),jac=jac)
+        scp.least_squares
+        coeffs,pcov = scp.curve_fit(surface,coordinates[:,0:2],coordinates[:,2],np.atleast_1d(self.getCoeffs()),jac=jac,maxfev=2000)
         self.updateCoeffs(coeffs)
         self.updateZeta()
         return 0
@@ -600,6 +608,9 @@ class CST3DParam(object):
 class CSTAirfoil3D(CST3DParam):
     """
     Class for storing cst parameterization information for extruded 'airfoil' surface (Pseudo 2D)
+
+    Default Coefficients:
+    class1, class2, shape1, ..., shape6, chord1, offset1
     """
     def __init__(self, surface, csClassFunc=None,
                  csClassCoeffs=[0.5,1.0], shapeCoeffs=[], chordCoeffs=[1.0], shapeOffsets=[0.0], masks=[],
@@ -626,12 +637,6 @@ class CSTAirfoil3D(CST3DParam):
         if zetaOffset is not None:
             zetaVals = zetaVals + zetaOffset
         return zetaVals
-
-    #Calculate psi,eta,zeta from surface
-    #def coords2PsiEtaZeta(self, surface):
-    #    psiEtaZeta = super().coords2PsiEtaZeta(surface)
-    #    psiEtaZeta[:,0][psiEtaZeta[:,0]==0.0] = 1e-16
-    #    return psiEtaZeta
 
     def calcXZ2Y(self, xVals, zVals):
         return 0
