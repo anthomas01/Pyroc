@@ -22,15 +22,14 @@ class CSTMultiParam(object):
         #self.mapper
 
     def attachPoints(self, coordinates, ptSetName, embeddedParams=None, parameterization=False):
-        #Project points to surface/CST geom object if some were passed in
-        if np.all(coordinates is not None) and len(np.shape(coordinates))==2: # and np.all(np.array(np.shape(coordinates))>0):
-            embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
-            self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, 
-                                                               embeddedParams, 
-                                                               fit=self.fit, 
-                                                               fitIter=self.fitIter, 
-                                                               parameterization=parameterization, 
-                                                               sig=self.sigFigs)
+
+        embeddedParams = embeddedParams if embeddedParams is not None else self.embeddedParams
+        self.embeddedSurfaces[ptSetName] = EmbeddedSurface(coordinates, 
+                                                           embeddedParams, 
+                                                           fit=self.fit, 
+                                                           fitIter=self.fitIter, 
+                                                           parameterization=parameterization, 
+                                                           sig=self.sigFigs)
 
     def attachParameterization(self, parameterization, ptSetName, embeddedParams=None):
         #Project points to surface/CST geom object if some were passed in
@@ -183,37 +182,44 @@ class CSTMultiParam(object):
 class EmbeddedSurface(object):
     #Class for managing multiple CST surfaces
 
-    def __init__(self, coordinates, embeddedParams, fit=False, fitIter=1, parameterization=False, sig=8):
+    def __init__(self, coordinates, embeddedParams, fit=False, fitIter=1, parameterization=False, sig=16):
         self.embeddedParams = embeddedParams
         self.N = len(coordinates)
         self.connectionsDict = OrderedDict()
         self.dPtdCoef = None
 
-        if parameterization:
-            #Read in parameterization, ndarray (N,3)
-            self.parameterization = np.copy(coordinates)
+        if self.N>0:
 
-            #Determine which embedded parameterization object each coordinate belongs to
-            self.paramMap = self.mapParameterization2Params(self.parameterization) #list
+            if parameterization:
+                #Read in parameterization, ndarray (N,3)
+                self.parameterization = np.copy(coordinates)
 
-            self.initializeParameterizationConnections(sig)
+                #Determine which embedded parameterization object each coordinate belongs to
+                self.paramMap = self.mapParameterization2Params(self.parameterization) #list
 
-            self.coordinates = self.parameterization
+                self.coordinates = np.copy(self.parameterization)
 
-            self.updateCoords()
+                self.initializeParameterizationConnections(sig)
+
+                self.updateCoords()
+
+            else:
+                #Read in coords, ndarray (N,3)
+                self.coordinates = np.copy(coordinates)
+
+                for _ in range(fitIter):
+                    #Determine which embedded parameterization object each coordinate belongs to
+                    self.paramMap = self.mapCoords2Params() #list
+
+                    #Group coordinates by parameterization and apply fit if True
+                    self.parameterization = self.fitParams(fit)
+
+                self.initializeParameterizationConnections(sig)
 
         else:
-            #Read in coords, ndarray (N,3)
+            
             self.coordinates = np.copy(coordinates)
-
-            for _ in range(fitIter):
-                #Determine which embedded parameterization object each coordinate belongs to
-                self.paramMap = self.mapCoords2Params() #list
-
-                #Group coordinates by parameterization and apply fit if True
-                self.parameterization = self.fitParams(fit)
-
-            self.initializeParameterizationConnections(sig)
+            
     
     #TODO FIXME
     #Move mapping to seperate class?
@@ -378,8 +384,6 @@ class EmbeddedSurface(object):
                             #Keep track of exact point placement
                             countsDuplicates[thisPsiEtaIndices] = n1
 
-                        #print(thisPsiEtaIndices,countsDuplicates[thisPsiEtaIndices],self.parameterization[thisPsiEtaIndices])
-
                     #Store needed information
                     connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==connection['connectingParam']][0]
                     self.connectionsDict[connectionName] = {
@@ -392,93 +396,96 @@ class EmbeddedSurface(object):
 
     #Vectorize based on parameterization and update coordinates
     def updateCoords(self):
-        coordinates = np.zeros((self.N,3))
-        for paramName in np.unique(self.paramMap):
-            param = self.embeddedParams[paramName]
-            coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
-            psiEtaZeta = self.parameterization[coordinateIndices]
+        if self.N>0:
+            coordinates = np.zeros((self.N,3))
+            for paramName in np.unique(self.paramMap):
+                param = self.embeddedParams[paramName]
+                coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
+                psiEtaZeta = self.parameterization[coordinateIndices]
 
-            #Get args for various connections
-            connectionArgs = {}
-            for connectionName in self.connectionsDict:
-                connection = self.connectionsDict[connectionName]
-                if connection['type'] in [0] and 'counts_'+paramName in connection:
-                    connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
-                    connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
+                #Get args for various connections
+                connectionArgs = {}
+                for connectionName in self.connectionsDict:
+                    connection = self.connectionsDict[connectionName]
+                    if connection['type'] in [0] and 'counts_'+paramName in connection:
+                        connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
+                        connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
 
-            psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta, **connectionArgs)
-            coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
-        self.coordinates = coordinates
+                psiEtaZeta[:,2] = param.calcZeta(psiEtaZeta, **connectionArgs)
+                coordinates[coordinateIndices] = param.calcCoords(psiEtaZeta)
+            self.coordinates = coordinates
 
     #TODO Make this more efficient
     def updatedPtdCoef(self):
         #find nCoef and coefMap
         nCoef = 0
         coefMap = {}
-        for paramName in self.embeddedParams:
-            paramCoeffs = self.embeddedParams[paramName].coeffs
-            coefMap[paramName] = [_+nCoef for _ in range(len(paramCoeffs))]
-            nCoef += len(paramCoeffs)
 
-        #size of dPtdCoef will be 3*Npts x Ncoef
-        dPtdCoef = np.zeros((3*self.N, nCoef))
+        if self.N>0:
+            for paramName in self.embeddedParams:
+                paramCoeffs = self.embeddedParams[paramName].coeffs
+                coefMap[paramName] = [_+nCoef for _ in range(len(paramCoeffs))]
+                nCoef += len(paramCoeffs)
 
-        for paramName in np.unique(self.paramMap):
-            param = self.embeddedParams[paramName]
-            coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
-            coordinates = self.coordinates[coordinateIndices]
+            #size of dPtdCoef will be 3*Npts x Ncoef
+            dPtdCoef = np.zeros((3*self.N, nCoef))
 
-            #Get args for various connections
-            connectionArgs = {}
-            for connectionName in self.connectionsDict:
-                connection = self.connectionsDict[connectionName]
-                if connection['type'] in [0] and 'counts_'+paramName in connection:
-                    connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
-                    connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
+            for paramName in np.unique(self.paramMap):
+                param = self.embeddedParams[paramName]
+                coordinateIndices = np.where(np.array(self.paramMap)==paramName)[0]
+                coordinates = self.coordinates[coordinateIndices]
 
-            #Calculate partial dPtdCoef
-            partialdPtdCoef = param.calcdPtdCoef(coordinates, **connectionArgs)
-            #Insert into dPtdCoef based on coefficient mapping
-            #TODO Speed this up
-            for i in range(len(coordinateIndices)):
-                ind = coordinateIndices[i]
-                for j in range(len(coefMap[paramName])):
-                    coef = coefMap[paramName][j]
-                    dPtdCoef[3*ind:3*(ind+1), coef] = partialdPtdCoef[3*i:3*(i+1), j]
+                #Get args for various connections
+                connectionArgs = {}
+                for connectionName in self.connectionsDict:
+                    connection = self.connectionsDict[connectionName]
+                    if connection['type'] in [0] and 'counts_'+paramName in connection:
+                        connectionArgs['countsDuplicates'] = connection['counts_'+paramName][coordinateIndices]
+                        connectionArgs['totalCountsDuplicates'] = connection['totalCounts'][coordinateIndices]
 
-            #Set derivatives for connections not covered by partial dPtdCoef jacobians
-            for connectionName in self.connectionsDict:
-                paramConnection = param.connectionsDict[connectionName]
-                connection = self.connectionsDict[connectionName]
-                if connection['type'] in [0] and 'counts_'+paramName in connection:
-                    #Get index info
-                    connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==paramConnection['connectingParam']][0]
-                    connectingCoordinateIndices = np.where(np.array(self.paramMap)==connectingParamName)[0]
-                    connectingCountsDuplicates = connection['counts_'+paramName][connectingCoordinateIndices]
-                    connectingTotalCountsDuplicates = connection['totalCounts'][connectingCoordinateIndices]
-                    totalDuplicatePsiEtaIndices = np.where(connectingTotalCountsDuplicates>1)[0]
-                    duplicateConnectingCoordinateIndices = connectingCoordinateIndices[totalDuplicatePsiEtaIndices]
-                    
-                    if len(duplicateConnectingCoordinateIndices)>0:
-                        #Get derivatives
-                        duplicatePsiEtaZeta = self.parameterization[duplicateConnectingCoordinateIndices]
-                        duplicatePsiEtaZeta[:,2] = param.param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta)) #Unscaled zeta
-                        jac = param.param.calcParamsJacobian(np.atleast_2d(duplicatePsiEtaZeta))
+                #Calculate partial dPtdCoef
+                partialdPtdCoef = param.calcdPtdCoef(coordinates, **connectionArgs)
+                #Insert into dPtdCoef based on coefficient mapping
+                #TODO Speed this up
+                for i in range(len(coordinateIndices)):
+                    ind = coordinateIndices[i]
+                    for j in range(len(coefMap[paramName])):
+                        coef = coefMap[paramName][j]
+                        dPtdCoef[3*ind:3*(ind+1), coef] = partialdPtdCoef[3*i:3*(i+1), j]
 
-                        #Calculate offset
-                        paramOffset = np.zeros_like(jac)
-                        for i in range(len(coefMap[paramName])):
-                            paramOffset[2::3,i] = (jac[2::3,i] * (1 - connectingCountsDuplicates[totalDuplicatePsiEtaIndices]) /
-                                                      (connectingTotalCountsDuplicates[totalDuplicatePsiEtaIndices] - 1))
+                #Set derivatives for connections not covered by partial dPtdCoef jacobians
+                for connectionName in self.connectionsDict:
+                    paramConnection = param.connectionsDict[connectionName]
+                    connection = self.connectionsDict[connectionName]
+                    if connection['type'] in [0] and 'counts_'+paramName in connection:
+                        #Get index info
+                        connectingParamName = [name for name in self.embeddedParams if self.embeddedParams[name]==paramConnection['connectingParam']][0]
+                        connectingCoordinateIndices = np.where(np.array(self.paramMap)==connectingParamName)[0]
+                        connectingCountsDuplicates = connection['counts_'+paramName][connectingCoordinateIndices]
+                        connectingTotalCountsDuplicates = connection['totalCounts'][connectingCoordinateIndices]
+                        totalDuplicatePsiEtaIndices = np.where(connectingTotalCountsDuplicates>1)[0]
+                        duplicateConnectingCoordinateIndices = connectingCoordinateIndices[totalDuplicatePsiEtaIndices]
 
-                        #Calculate connection derivative
-                        indices = np.sort(np.array([[3*_+__ for __ in range(3)] for _ in duplicateConnectingCoordinateIndices]).flatten())
-                        connectionJac = param.param.calcJacobian(np.atleast_2d(self.coordinates[duplicateConnectingCoordinateIndices,:]),
-                                                             paramOffset=paramOffset)
-                        for i in range(len(coefMap[paramName])):
-                            dPtdCoef[indices,coefMap[paramName][i]] = connectionJac[:,i]
+                        if len(duplicateConnectingCoordinateIndices)>0:
+                            #Get derivatives
+                            duplicatePsiEtaZeta = self.parameterization[duplicateConnectingCoordinateIndices]
+                            duplicatePsiEtaZeta[:,2] = param.param.calcZeta(np.atleast_2d(duplicatePsiEtaZeta)) #Unscaled zeta
+                            jac = param.param.calcParamsJacobian(np.atleast_2d(duplicatePsiEtaZeta))
 
-        self.dPtdCoef = dPtdCoef
+                            #Calculate offset
+                            paramOffset = np.zeros_like(jac)
+                            for i in range(len(coefMap[paramName])):
+                                paramOffset[2::3,i] = (jac[2::3,i] * (1 - connectingCountsDuplicates[totalDuplicatePsiEtaIndices]) /
+                                                          (connectingTotalCountsDuplicates[totalDuplicatePsiEtaIndices] - 1))
+
+                            #Calculate connection derivative
+                            indices = np.sort(np.array([[3*_+__ for __ in range(3)] for _ in duplicateConnectingCoordinateIndices]).flatten())
+                            connectionJac = param.param.calcJacobian(np.atleast_2d(self.coordinates[duplicateConnectingCoordinateIndices,:]),
+                                                                 paramOffset=paramOffset)
+                            for i in range(len(coefMap[paramName])):
+                                dPtdCoef[indices,coefMap[paramName][i]] = connectionJac[:,i]
+
+            self.dPtdCoef = dPtdCoef
 
     #Fit parameters for all parameterizations used by this pointset
     def fitParams(self, performFit=False):

@@ -39,10 +39,10 @@ class DVGeometryCST(DVGeometry):
 
         self.ptSetNames.append(ptName)
         self.zeroJacobians([ptName])
+        self.nPts[ptName] = None
 
-        points = np.array(points).real.astype('d')
+        points = np.array(points).real.astype("d")
         self.points[ptName] = points
-        self.nPts[ptName] = len(points.flatten())
 
         # Ensure we project into the undeformed geometry
         if origConfig:
@@ -50,7 +50,8 @@ class DVGeometryCST(DVGeometry):
             self.param.coef = self.origParamCoef
             self.param.updateCoeffs()
 
-        self.param.attachPoints(self.points[ptName], ptName, **kwargs)
+        if self.points[ptName] is not None:
+            self.param.attachPoints(self.points[ptName], ptName, **kwargs)
 
         if origConfig:
             self.param.coef = tmpCoef
